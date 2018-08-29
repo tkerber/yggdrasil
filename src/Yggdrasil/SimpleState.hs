@@ -11,14 +11,14 @@ newtype SimpleState = SimpleState [Dynamic]
 get :: LegalFunct SimpleState s a b =>
     SimpleState ->
     Ref SimpleState s a b ->
-    Maybe (Funct SimpleState s a b)
+    Maybe (SSFunct s a b)
 get (SimpleState []) _ = Nothing
 get (SimpleState (x:_)) (SSRef 0) = fromDynamic x
 get (SimpleState (_:xs)) ref = get (SimpleState xs) (refdec ref)
 set :: LegalFunct SimpleState s a b =>
     SimpleState ->
     Ref SimpleState s a b ->
-    Funct SimpleState s a b ->
+    SSFunct s a b ->
     Maybe SimpleState
 set (SimpleState []) _ _ = Nothing
 set (SimpleState (_:xs)) (SSRef 0) f = Just $ SimpleState $ toDyn f : xs
