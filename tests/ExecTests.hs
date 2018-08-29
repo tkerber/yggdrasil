@@ -16,3 +16,5 @@ spec = do
     describe "action" $ do
         prop "obeys return" $ \i (x::String) ->
             fst (run' (mkStdGen i) (return x)) == Just x
+        prop "is exteral" $ \i ->
+            fst (run' (mkStdGen i) self) == Just external
