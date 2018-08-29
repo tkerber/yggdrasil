@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, FlexibleContexts #-}
 
 module Yggdrasil.SimpleState (SimpleState) where
 
@@ -8,17 +8,29 @@ import Data.Dynamic
 type SSFunct s a b = Funct SimpleState s a b
 newtype SimpleState = SimpleState [Dynamic]
 
-get :: (Typeable s, Typeable a, Typeable b) => SimpleState -> Ref SimpleState s a b -> Maybe (Funct SimpleState s a b)
+get :: LegalFunct SimpleState s a b =>
+    SimpleState ->
+    Ref SimpleState s a b ->
+    Maybe (Funct SimpleState s a b)
 get (SimpleState []) _ = Nothing
 get (SimpleState (x:_)) (SSRef 0) = fromDynamic x
 get (SimpleState (_:xs)) ref = get (SimpleState xs) (refdec ref)
-set :: (Typeable s, Typeable a, Typeable b) => SimpleState -> Ref SimpleState s a b -> Funct SimpleState s a b -> Maybe SimpleState
+set :: LegalFunct SimpleState s a b =>
+    SimpleState ->
+    Ref SimpleState s a b ->
+    Funct SimpleState s a b ->
+    Maybe SimpleState
 set (SimpleState []) _ _ = Nothing
 set (SimpleState (_:xs)) (SSRef 0) f = Just $ SimpleState $ toDyn f : xs
 set (SimpleState (x:xs)) ref f = do
-   SimpleState (xs') <- set (SimpleState xs) (refdec ref) f
-   return $ SimpleState (x:xs')
-update' :: (Typeable s, Typeable a, Typeable b) => SimpleState -> WeakRef SimpleState -> Ref SimpleState s a b -> a -> Maybe (SimpleState, Action SimpleState b)
+    SimpleState (xs') <- set (SimpleState xs) (refdec ref) f
+    return $ SimpleState (x:xs')
+update' :: LegalFunct SimpleState s a b =>
+    SimpleState ->
+    WeakRef SimpleState ->
+    Ref SimpleState s a b ->
+    a ->
+    Maybe (SimpleState, Action SimpleState b)
 update' gs from to msg = get gs to >>= (\(Funct st f) ->
     let (st', a) = f (st, (from, msg)) in
         set gs to (Funct st' f) >>= (\gs' -> return (gs', a)))
