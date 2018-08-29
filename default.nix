@@ -1,2 +1,2 @@
-with import <nixpkgs> { };
-haskellPackages.callPackage ./cabal.nix { }
+{ pkgs ? import <nixpkgs> { } }:
+pkgs.haskellPackages.callPackage ./cabal.nix { }
