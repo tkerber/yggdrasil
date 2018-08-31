@@ -1,8 +1,8 @@
-{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, ConstraintKinds #-}
+{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, ConstraintKinds, ScopedTypeVariables #-}
 
 module Yggdrasil.ExecutionModel (
-    GlobalState(..), StrongGlobalState(..), Action, Funct(..), LegalFunct, run,
-    abort, self, doSample, send, create
+    Funct, TypFunct, Ref, WeakRef, Action, external, weaken, abort,
+    strengthenSelf, self, doSample, send, create, run
 ) where
 
 import Control.Monad
@@ -10,67 +10,126 @@ import Data.Dynamic
 import System.Random
 import Yggdrasil.Distribution
 
--- A weak global state is what functionalities themselves get to see.
--- the weakness lies functionalities not being able to create a new instance of
--- it, and therefore all references in it being "safe". (Provided of course,
--- they are not returned into the outside world and used there)
-class Eq (WeakRef gs) => GlobalState gs where
-    data Ref gs :: * -> * -> * -> *
-    data WeakRef gs :: *
-    weaken :: Ref gs s a b -> WeakRef gs
-    new :: LegalFunct gs s a b => gs -> Funct gs s a b -> (gs, Ref gs s a b)
-    update :: LegalFunct gs s a b =>
-        gs -> WeakRef gs -> Ref gs s a b -> a -> Maybe (gs, Action gs b)
+newtype World = World [Dynamic]
 
--- A strong global state is able to create new instances of itself.
-class GlobalState gs => StrongGlobalState gs where
-    empty :: gs
-    external :: WeakRef gs
+-- | A functionality is a stateful function of '(WeakRef, a) -> Action b' over
+-- the state 's'.
+type Funct s a b = (s, WeakRef, a) -> (s, Action b)
 
-data Funct gs s a b = Funct s ((s, (WeakRef gs, a)) -> (s, Action gs b))
+-- | A typeable functionality
+type TypFunct s a b = (Typeable s, Typeable a, Typeable b)
 
-type LegalFunct gs s a b = (GlobalState gs, Typeable s, Typeable a, Typeable b)
+-- | References a functionality, which has some state in the world. A 'Ref' is
+-- only valid for the world it was created in, and has undefined behaviour when
+-- used elsewhere.
+data Ref s a b = Ref
+    { index :: Int
+    , func :: Funct s a b }
 
-data Action gs b where
-    Abort :: Action gs b
-    Self :: Action gs (WeakRef gs)
-    Sample :: Distribution b -> Action gs b
-    Send :: LegalFunct gs s a b => Ref gs s a b -> a -> Action gs b
-    Create :: LegalFunct gs s a b => Funct gs s a b -> Action gs (Ref gs s a b)
-    Compose :: Action gs c -> (c -> Action gs b) -> Action gs b
+-- | A weakened reference, that allows comparing entities for equality, but
+-- nothing else.
+newtype WeakRef = WeakRef Int deriving Eq
+
+-- | A special reference indicating that something is external of the world.
+-- This does not have a corresponding strong reference.
+external :: WeakRef
+external = WeakRef (-1)
+
+-- | Weakens a functionality reference.
+weaken :: Ref s a b -> WeakRef
+weaken = WeakRef . index
+
+strengthen :: TypFunct s a b =>
+    World -> WeakRef -> Funct s a b -> Maybe (Ref s a b)
+strengthen (World []) _ _ = Nothing
+strengthen (World (x:_)) (WeakRef 0) (f :: Funct s a b) = do
+    _ :: s <- fromDynamic x
+    return $ Ref 0 f
+strengthen (World (_:xs)) wref f = do
+    (Ref i f') <- strengthen (World xs) wref f
+    return $ Ref (i+1) f'
+
+new :: TypFunct s a b =>
+    World -> s -> Funct s a b -> (World, Ref s a b)
+new (World xs) s f = (World (xs ++ [toDyn s]), Ref (length xs) f)
+
+safeIdx :: [a] -> Int -> Maybe a
+safeIdx [] _ = Nothing
+safeIdx (x:_) 0 = Just x
+safeIdx _ i | i < 0 = Nothing
+safeIdx (_:xs) i = safeIdx xs (i-1)
+
+safeWriteIdx :: [a] -> Int -> a -> Maybe [a]
+safeWriteIdx [] _ _ = Nothing
+safeWriteIdx (_:xs) 0 x' = Just (x':xs)
+safeWriteIdx _ i _ | i < 0 = Nothing
+safeWriteIdx (x:xs) i x' = fmap ((:) x) $ safeWriteIdx xs (i-1) x'
+
+update :: TypFunct s a b =>
+    World -> WeakRef -> Ref s a b -> a -> Maybe (World, Action b)
+update (World xs) from to msg = do
+    dyns <- safeIdx xs (index to)
+    s <- fromDynamic dyns
+    let (s', a) = (func to) (s, from, msg)
+    xs' <- safeWriteIdx xs (index to) (toDyn s')
+    return $ (World xs', a)
+
+data Action b where
+    Abort :: Action b
+    StrengthenSelf :: TypFunct s a b => Funct s a b -> Action (Ref s a b)
+    Self :: Action WeakRef
+    Sample :: Distribution b -> Action b
+    Send :: TypFunct s a b => Ref s a b -> a -> Action b
+    Create :: TypFunct s a b => s -> Funct s a b -> Action (Ref s a b)
+    Compose :: Action c -> (c -> Action b) -> Action b
 
 -- Export visible constructors as functions.
-abort :: Action gs b
+-- | Aborts the current execution.
+abort :: Action b
 abort = Abort
-self :: Action gs (WeakRef gs)
+-- | Attempts to add a new operation on ourselves.
+-- This action will fail (effectively aborting) if our state is not of type
+-- 's'.
+strengthenSelf :: TypFunct s a b => Funct s a b -> Action (Ref s a b)
+strengthenSelf = StrengthenSelf
+-- | Obtain a weak reference on ourselves.
+self :: Action WeakRef
 self = Self
-doSample :: Distribution b -> Action gs b
+-- | Sample from a distribution
+doSample :: Distribution b -> Action b
 doSample = Sample
-send :: LegalFunct gs s a b => Ref gs s a b -> a -> Action gs b
+-- | Send a message to a receipient we know the reference of.
+-- Unless the receipient aborts, he must eventually respond.
+send :: TypFunct s a b => Ref s a b -> a -> Action b
 send = Send
-create :: LegalFunct gs s a b => Funct gs s a b -> Action gs (Ref gs s a b)
+-- | Creates a new autonomous party, with a given initial state, and a given
+-- program.
+create :: TypFunct s a b => s -> Funct s a b -> Action (Ref s a b)
 create = Create
 
-run :: (RandomGen g, StrongGlobalState gs) => g -> Action gs b -> (Maybe b, g)
-run g a = let (r, g') = run' g empty external a in (fmap snd r, g')
-
-run' :: (RandomGen g, GlobalState gs) =>
-    g -> gs -> WeakRef gs -> Action gs b -> (Maybe (gs, b), g)
-run' g _ _ Abort = (Nothing, g)
-run' g gs self' Self = (Just (gs, self'), g)
-run' g gs _ (Sample d) = let (y, g') = sample g d in (Just (gs, y), g')
-run' g gs from (Send ref m) = case update gs from ref m of
-    Just (gs', a) -> run' g gs' (weaken ref) a
-    Nothing -> (Nothing, g)
-run' g gs _ (Create f) = (Just (new gs f), g)
-run' g gs from (Compose a f) = case run' g gs from a of
-    (Just (gs', b), g') -> run' g' gs' from (f b)
-    (Nothing, g') -> (Nothing, g')
-
-instance Functor (Action gs) where
+instance Functor Action where
     fmap f x = pure f <*> x
-instance Applicative (Action gs) where
+instance Applicative Action where
     pure = Sample . pure
     (<*>) = ap
-instance Monad (Action gs) where
+instance Monad Action where
     a >>= b = Compose a b
+
+-- | Execute a top-level action in the Yggdrasil execution model.
+run :: RandomGen g => g -> Action b -> (Maybe b, g)
+run g a = let (r, g') = run' g (World []) external a in (fmap snd r, g')
+
+run' :: RandomGen g =>
+    g -> World -> WeakRef -> Action b -> (Maybe (World, b), g)
+run' g _ _ Abort = (Nothing, g)
+run' g wld slf (StrengthenSelf f) =
+    (fmap (\r -> (wld, r)) (strengthen wld slf f), g)
+run' g wld slf Self = (Just (wld, slf), g)
+run' g wld _ (Sample d) = let (y, g') = sample g d in (Just (wld, y), g')
+run' g wld from (Send ref m) = case update wld from ref m of
+    Just (wld', a) -> run' g wld' (weaken ref) a
+    Nothing -> (Nothing, g)
+run' g wld _ (Create s f) = (Just (new wld s f), g)
+run' g wld from (Compose a f) = case run' g wld from a of
+    (Just (wld', b), g') -> run' g' wld' from (f b)
+    (Nothing, g') -> (Nothing, g')
