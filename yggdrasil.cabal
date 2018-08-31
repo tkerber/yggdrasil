@@ -17,7 +17,7 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Yggdrasil.Distribution, Yggdrasil.ExecutionModel
+  exposed-modules:     Yggdrasil.Distribution, Yggdrasil.ExecutionModel, Yggdrasil.Functionalities
   -- other-modules:
   other-extensions:    ExistentialQuantification, MultiParamTypeClasses, AllowAmbiguousTypes, TypeFamilies, GADTs, FlexibleContexts, ScopedTypeVariables
   build-depends:       random, base >=4.11 && <4.12

@@ -1,8 +1,9 @@
 {-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, ConstraintKinds, ScopedTypeVariables #-}
 
 module Yggdrasil.ExecutionModel (
-    Funct, TypFunct, Ref, WeakRef, Action, external, weaken, abort,
-    strengthenSelf, self, doSample, send, create, run
+    Operation, TypOperation, TypFunctionality, Ref, WeakRef, Action,
+    Functionality(..), external, weaken, abort, strengthenSelf, self, doSample,
+    send, create, run
 ) where
 
 import Control.Monad
@@ -12,19 +13,24 @@ import Yggdrasil.Distribution
 
 newtype World = World [Dynamic]
 
--- | A functionality is a stateful function of '(WeakRef, a) -> Action b' over
--- the state 's'.
-type Funct s a b = (s, WeakRef, a) -> (s, Action b)
+-- | An operation is a stateful function of '(WeakRef, a) -> Action b' over the
+-- state 's'.
+type Operation s a b = (s, WeakRef, a) -> Action (s, b)
 
--- | A typeable functionality
-type TypFunct s a b = (Typeable s, Typeable a, Typeable b)
+-- | A typeable operation
+type TypOperation s a b = (Typeable s, Typeable a, Typeable b)
+
+type TypFunctionality s b = (Typeable s, Typeable b)
+
+data Functionality s b = Functionality s (Action b)
 
 -- | References a functionality, which has some state in the world. A 'Ref' is
 -- only valid for the world it was created in, and has undefined behaviour when
 -- used elsewhere.
 data Ref s a b = Ref
     { index :: Int
-    , func :: Funct s a b }
+    , func :: Operation s a b
+    }
 
 -- | A weakened reference, that allows comparing entities for equality, but
 -- nothing else.
@@ -39,19 +45,18 @@ external = WeakRef (-1)
 weaken :: Ref s a b -> WeakRef
 weaken = WeakRef . index
 
-strengthen :: TypFunct s a b =>
-    World -> WeakRef -> Funct s a b -> Maybe (Ref s a b)
+strengthen :: TypOperation s a b =>
+    World -> WeakRef -> Operation s a b -> Maybe (Ref s a b)
 strengthen (World []) _ _ = Nothing
-strengthen (World (x:_)) (WeakRef 0) (f :: Funct s a b) = do
+strengthen (World (x:_)) (WeakRef 0) (f :: Operation s a b) = do
     _ :: s <- fromDynamic x
     return $ Ref 0 f
 strengthen (World (_:xs)) wref f = do
     (Ref i f') <- strengthen (World xs) wref f
     return $ Ref (i+1) f'
 
-new :: TypFunct s a b =>
-    World -> s -> Funct s a b -> (World, Ref s a b)
-new (World xs) s f = (World (xs ++ [toDyn s]), Ref (length xs) f)
+new :: Typeable s => World -> s -> (World, WeakRef)
+new (World xs) s = (World (xs ++ [toDyn s]), WeakRef (length xs))
 
 safeIdx :: [a] -> Int -> Maybe a
 safeIdx [] _ = Nothing
@@ -65,22 +70,13 @@ safeWriteIdx (_:xs) 0 x' = Just (x':xs)
 safeWriteIdx _ i _ | i < 0 = Nothing
 safeWriteIdx (x:xs) i x' = fmap ((:) x) $ safeWriteIdx xs (i-1) x'
 
-update :: TypFunct s a b =>
-    World -> WeakRef -> Ref s a b -> a -> Maybe (World, Action b)
-update (World xs) from to msg = do
-    dyns <- safeIdx xs (index to)
-    s <- fromDynamic dyns
-    let (s', a) = (func to) (s, from, msg)
-    xs' <- safeWriteIdx xs (index to) (toDyn s')
-    return $ (World xs', a)
-
 data Action b where
     Abort :: Action b
-    StrengthenSelf :: TypFunct s a b => Funct s a b -> Action (Ref s a b)
+    StrengthenSelf :: TypOperation s a b => Operation s a b -> Action (Ref s a b)
     Self :: Action WeakRef
     Sample :: Distribution b -> Action b
-    Send :: TypFunct s a b => Ref s a b -> a -> Action b
-    Create :: TypFunct s a b => s -> Funct s a b -> Action (Ref s a b)
+    Send :: TypOperation s a b => Ref s a b -> a -> Action b
+    Create :: TypFunctionality s b => Functionality s b -> Action b
     Compose :: Action c -> (c -> Action b) -> Action b
 
 -- Export visible constructors as functions.
@@ -90,7 +86,7 @@ abort = Abort
 -- | Attempts to add a new operation on ourselves.
 -- This action will fail (effectively aborting) if our state is not of type
 -- 's'.
-strengthenSelf :: TypFunct s a b => Funct s a b -> Action (Ref s a b)
+strengthenSelf :: TypOperation s a b => Operation s a b -> Action (Ref s a b)
 strengthenSelf = StrengthenSelf
 -- | Obtain a weak reference on ourselves.
 self :: Action WeakRef
@@ -100,11 +96,11 @@ doSample :: Distribution b -> Action b
 doSample = Sample
 -- | Send a message to a receipient we know the reference of.
 -- Unless the receipient aborts, he must eventually respond.
-send :: TypFunct s a b => Ref s a b -> a -> Action b
+send :: TypOperation s a b => Ref s a b -> a -> Action b
 send = Send
 -- | Creates a new autonomous party, with a given initial state, and a given
 -- program.
-create :: TypFunct s a b => s -> Funct s a b -> Action (Ref s a b)
+create :: TypFunctionality s b => Functionality s b -> Action b
 create = Create
 
 instance Functor Action where
@@ -116,20 +112,35 @@ instance Monad Action where
     a >>= b = Compose a b
 
 -- | Execute a top-level action in the Yggdrasil execution model.
-run :: RandomGen g => g -> Action b -> (Maybe b, g)
-run g a = let (r, g') = run' g (World []) external a in (fmap snd r, g')
+run :: RandomGen g => g -> Action b -> Maybe (b, g)
+run g a = fmap (\(_, b, g') -> (b, g')) $ run' g (World []) external a
 
 run' :: RandomGen g =>
-    g -> World -> WeakRef -> Action b -> (Maybe (World, b), g)
-run' g _ _ Abort = (Nothing, g)
+    g -> World -> WeakRef -> Action b -> Maybe (World, b, g)
+run' _ _ _ Abort = Nothing
 run' g wld slf (StrengthenSelf f) =
-    (fmap (\r -> (wld, r)) (strengthen wld slf f), g)
-run' g wld slf Self = (Just (wld, slf), g)
-run' g wld _ (Sample d) = let (y, g') = sample g d in (Just (wld, y), g')
-run' g wld from (Send ref m) = case update wld from ref m of
-    Just (wld', a) -> run' g wld' (weaken ref) a
-    Nothing -> (Nothing, g)
-run' g wld _ (Create s f) = (Just (new wld s f), g)
-run' g wld from (Compose a f) = case run' g wld from a of
-    (Just (wld', b), g') -> run' g' wld' from (f b)
-    (Nothing, g') -> (Nothing, g')
+    fmap (\r -> (wld, r, g)) (strengthen wld slf f)
+run' g wld slf Self = Just (wld, slf, g)
+run' g wld _ (Sample d) = let (y, g') = sample g d in Just (wld, y, g')
+run' g (World xs) from (Send to m) = do
+    dyns <- safeIdx xs (index to)
+    s <- fromDynamic dyns
+    let action = (func to) (s, from, m)
+    (World (xs'), (s', y), g') <- run' g (World xs) (weaken to) action
+    xs'' <- safeWriteIdx xs' (index to) (toDyn s')
+    return $ (World xs'', y, g')
+    -- Note: This could cause a re-entrancy style bug!
+run' g wld _ (Create (Functionality s a)) =
+    let (wld', from') = new wld s in run' g wld' from' a
+run' g wld from (Compose a f) = do
+    (wld', b, g') <- run' g wld from a
+    run' g' wld' from (f b)
+-- update :: TypOperation s a b =>
+--     World -> WeakRef -> Ref s a b -> a -> Maybe (World, Action b)
+-- update (World xs) from to msg = do
+--     dyns <- safeIdx xs (index to)
+--     s <- fromDynamic dyns
+--     a' <- (func to) (s, from, msg)
+--     xs' <- safeWriteIdx xs (index to) (toDyn s')
+--     return $ (World xs', a)
+
