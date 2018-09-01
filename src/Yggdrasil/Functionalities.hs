@@ -9,8 +9,8 @@ import Yggdrasil.Distribution
 
 type CRSState b = Maybe b
 crsOp :: Distribution b -> Operation (CRSState b) () b
-crsOp _ ((Just x), _, ()) = return (Just x, x)
-crsOp d (Nothing, _, ()) = fmap (\x -> (Just x, x)) $ doSample d 
+crsOp _ (Just x, _, ()) = return (Just x, x)
+crsOp d (Nothing, _, ()) = (\x -> (Just x, x)) <$> doSample d 
 commonRandomString :: Typeable b =>
     Distribution b -> Functionality (CRSState b) (Ref (CRSState b) () b)
 commonRandomString d = Functionality Nothing (strengthenSelf (crsOp d))

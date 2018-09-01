@@ -1,4 +1,9 @@
-{-# LANGUAGE TypeFamilies, GADTs, FlexibleContexts, ConstraintKinds, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies,
+             GADTs,
+             FlexibleContexts,
+             ConstraintKinds,
+             ScopedTypeVariables,
+             TupleSections #-}
 
 module Yggdrasil.ExecutionModel (
     Operation, TypOperation, TypFunctionality, Ref, WeakRef, Action,
@@ -68,7 +73,7 @@ safeWriteIdx :: [a] -> Int -> a -> Maybe [a]
 safeWriteIdx [] _ _ = Nothing
 safeWriteIdx (_:xs) 0 x' = Just (x':xs)
 safeWriteIdx _ i _ | i < 0 = Nothing
-safeWriteIdx (x:xs) i x' = fmap ((:) x) $ safeWriteIdx xs (i-1) x'
+safeWriteIdx (x:xs) i x' = (:) x <$> safeWriteIdx xs (i-1) x'
 
 data Action b where
     Abort :: Action b
@@ -113,22 +118,22 @@ instance Monad Action where
 
 -- | Execute a top-level action in the Yggdrasil execution model.
 run :: RandomGen g => g -> Action b -> Maybe (b, g)
-run g a = fmap (\(_, b, g') -> (b, g')) $ run' g (World []) external a
+run g a = (\(_, b, g') -> (b, g')) <$> run' g (World []) external a
 
 run' :: RandomGen g =>
     g -> World -> WeakRef -> Action b -> Maybe (World, b, g)
 run' _ _ _ Abort = Nothing
 run' g wld slf (StrengthenSelf f) =
-    fmap (\r -> (wld, r, g)) (strengthen wld slf f)
+    (wld, , g) <$> strengthen wld slf f
 run' g wld slf Self = Just (wld, slf, g)
 run' g wld _ (Sample d) = let (y, g') = sample g d in Just (wld, y, g')
 run' g (World xs) from (Send to m) = do
     dyns <- safeIdx xs (index to)
     s <- fromDynamic dyns
-    let action = (func to) (s, from, m)
-    (World (xs'), (s', y), g') <- run' g (World xs) (weaken to) action
+    let action = func to (s, from, m)
+    (World xs', (s', y), g') <- run' g (World xs) (weaken to) action
     xs'' <- safeWriteIdx xs' (index to) (toDyn s')
-    return $ (World xs'', y, g')
+    return (World xs'', y, g')
     -- Note: This could cause a re-entrancy style bug!
 run' g wld _ (Create (Functionality s a)) =
     let (wld', from') = new wld s in run' g wld' from' a

@@ -1,4 +1,7 @@
-{-# LANGUAGE MultiParamTypeClasses, ExistentialQuantification, Rank2Types #-}
+{-# LANGUAGE MultiParamTypeClasses,
+             ExistentialQuantification,
+             Rank2Types,
+             TupleSections #-}
 
 module Yggdrasil.Distribution (Distribution, sample) where
 
@@ -13,7 +16,7 @@ sample g (Distribution f) = f g
 instance Functor Distribution where
     fmap f x = pure f <*> x
 instance Applicative Distribution where
-    pure x = Distribution (\g -> (x, g))
+    pure x = Distribution (x,)
     (<*>) = ap
 instance Monad Distribution where
     a >>= b = Distribution (\g ->
