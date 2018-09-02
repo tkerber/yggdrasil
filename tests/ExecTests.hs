@@ -2,15 +2,33 @@
 
 module ExecTests (spec) where
 
-import System.Random
+import Crypto.Random
+import Data.Maybe
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Yggdrasil.ExecutionModel
+import Yggdrasil.Distribution
 
-spec :: Spec
-spec =
-    describe "action" $ do
-        prop "obeys return" $ \i (x::String) ->
-            fst (run (mkStdGen i) (return x)) == Just x
-        prop "is exteral" $ \i ->
-            fst (run (mkStdGen i) self) == Just external
+inSampleRange :: Int -> Bool
+inSampleRange x = x > 4700 && x < 5300
+
+sampleTest :: Action Int
+sampleTest = sampleTest' 10000
+  where
+    sampleTest' :: Int -> Action Int
+    sampleTest' 0 = return 0
+    sampleTest' n = do
+        x <- sampleTest' (n-1)
+        b <- doSample (uniform [0, 1])
+        return $ x + b
+
+spec :: IO Spec
+spec = do
+    rnd <- getSystemDRG
+    return $ describe "action" $ do
+        prop "obeys return" $ \(x::String) -> do
+            (fmap fst (run rnd (return x))) == Just x
+        it "is exteral" $
+            (fmap fst (run rnd self) == Just external) `shouldBe` True
+        it "samples evenly" $
+            inSampleRange (fst $ fromJust (run rnd sampleTest)) `shouldBe` True
