@@ -1,10 +1,10 @@
-{-# LANGUAGE MultiParamTypeClasses,
-             ExistentialQuantification,
-             Rank2Types,
-             ScopedTypeVariables,
-             TupleSections #-}
+{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 
-module Yggdrasil.Distribution (Distribution, Sampler, sample, coin, uniform) where
+module Yggdrasil.Distribution (
+    Distribution, Sampler, sample, sample', coin, uniform
+) where
 
 import Control.Monad
 import Crypto.Random
@@ -29,13 +29,16 @@ class Sampler s where
     sampleCoin :: s -> (Bool, s)
 
 instance Sampler SystemDRG where
-    sampleCoin s = (if b .&. 1 == 1 then True else False, s')
+    sampleCoin s = (b .&. 1 == 1, s')
       where
         (ba :: B.Bytes, s') = randomBytesGenerate 1 s
         (b, _) = fromJust $ B.uncons ba
 
 sample :: Sampler s => s -> Distribution b -> (b, s)
 sample s (Distribution f) = f s
+
+sample' :: Sampler s => s -> Distribution b -> b
+sample' s = fst . sample s
 
 coin :: Distribution Bool
 coin = Distribution sampleCoin

@@ -1,10 +1,8 @@
-{-# LANGUAGE TypeFamilies,
-             GADTs,
-             FlexibleContexts,
-             ConstraintKinds,
-             ScopedTypeVariables,
-             TypeOperators,
-             TupleSections #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE TypeOperators       #-}
 
 module Yggdrasil.ExecutionModel (
     Operation, WeakRef, Action, Functionality(..), type (->>), (->>), external,
@@ -12,6 +10,8 @@ module Yggdrasil.ExecutionModel (
 ) where
 
 import Control.Monad
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 import Data.Dynamic
 import Yggdrasil.Distribution
 
@@ -21,7 +21,7 @@ newtype World = World [Dynamic]
 -- state 's'.
 type Operation s a b = (s, WeakRef, a) -> Action (s, b)
 
-data Functionality s b = Functionality s (Action b)
+data Functionality s a b = Functionality s (a -> Action b)
 
 data a ->> b where
     Ref :: Typeable s => Int -> Operation s a b -> (a ->> b)
@@ -70,7 +70,7 @@ data Action b where
     Self :: Action WeakRef
     Sample :: Distribution b -> Action b
     Send :: a -> (a ->> b) -> Action b
-    Create :: Typeable s => Functionality s b -> Action b
+    Create :: Typeable s => Functionality s a b -> a -> Action b
     Compose :: Action c -> (c -> Action b) -> Action b
 
 -- Export visible constructors as functions.
@@ -94,7 +94,7 @@ doSample = Sample
 (->>) = Send
 -- | Creates a new autonomous party, with a given initial state, and a given
 -- program.
-create :: Typeable s => Functionality s b -> Action b
+create :: Typeable s => Functionality s a b -> a -> Action b
 create = Create
 
 instance Functor Action where
@@ -106,26 +106,28 @@ instance Monad Action where
     a >>= b = Compose a b
 
 -- | Execute a top-level action in the Yggdrasil execution model.
-run :: Sampler s => s -> Action b -> Maybe (b, s)
-run s a = (\(_, b, s') -> (b, s')) <$> run' s (World []) external a
+run :: Action b -> Distribution (Maybe b)
+run a = runMaybeT $ snd <$> run' (World []) external a
 
-run' :: Sampler s =>
-    s -> World -> WeakRef -> Action b -> Maybe (World, b, s)
-run' _ _ _ Abort = Nothing
-run' s wld slf (StrengthenSelf f) =
-    (wld, , s) <$> strengthen wld slf f
-run' s wld slf Self = return (wld, slf, s)
-run' s wld _ (Sample d) = let (y, s') = sample s d in Just (wld, y, s')
-run' s (World xs) from (Send m to@(Ref idx func)) = do
-    dyns <- safeIdx xs idx
-    st <- fromDynamic dyns
+--run :: Sampler s => s -> Action b -> Maybe (b, s)
+--run s a = (\(_, b, s') -> (b, s')) <$> run' s (World []) external a
+
+run' :: World -> WeakRef -> Action b -> MaybeT Distribution (World, b)
+run' _ _ Abort = MaybeT $ return Nothing
+run' wld slf (StrengthenSelf f) = MaybeT $ return $
+    (wld,) <$> strengthen wld slf f
+run' wld slf Self = MaybeT $ return $ Just (wld, slf)
+run' wld _ (Sample d) = lift $ (wld,) <$> d
+run' (World xs) from (Send m to@(Ref idx func)) = do
+    dyns <- MaybeT $ return $ safeIdx xs idx
+    st <- MaybeT $ return $ fromDynamic dyns
     let action = func (st, from, m)
-    (World xs', (st', y), s') <- run' s (World xs) (weaken to) action
-    xs'' <- safeWriteIdx xs' idx (toDyn st')
-    return (World xs'', y, s')
+    (World xs', (st', y)) <- run' (World xs) (weaken to) action
+    xs'' <- MaybeT $ return $ safeWriteIdx xs' idx (toDyn st')
+    return (World xs'', y)
     -- Note: This could cause a re-entrancy style bug!
-run' s wld _ (Create (Functionality st a)) =
-    let (wld', from') = new wld st in run' s wld' from' a
-run' s wld from (Compose a f) = do
-    (wld', b, s') <- run' s wld from a
-    run' s' wld' from (f b)
+run' wld _ (Create (Functionality st f) x) =
+    let (wld', from') = new wld st in run' wld' from' (f x)
+run' wld from (Compose a f) = do
+    (wld', b) <- run' wld from a
+    run' wld' from (f b)

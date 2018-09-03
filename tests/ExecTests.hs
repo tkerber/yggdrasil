@@ -26,9 +26,10 @@ spec :: IO Spec
 spec = do
     rnd <- getSystemDRG
     return $ describe "action" $ do
-        prop "obeys return" $ \(x::String) -> do
-            (fmap fst (run rnd (return x))) == Just x
+        prop "obeys return" $ \(x::String) ->
+            sample' rnd (run (return x)) == Just x
         it "is exteral" $
-            (fmap fst (run rnd self) == Just external) `shouldBe` True
+            sample' rnd (run self) == Just external `shouldBe` True
         it "samples evenly" $
-            inSampleRange (fst $ fromJust (run rnd sampleTest)) `shouldBe` True
+            inSampleRange (fromJust $ sample' rnd (run sampleTest))
+                `shouldBe` True
