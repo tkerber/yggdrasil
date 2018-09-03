@@ -32,5 +32,5 @@ test-suite spec
   hs-source-dirs:   tests
   ghc-options:      -Wall -Werror
   main-is:          Spec.hs
-  other-modules:    ExecTests
+  other-modules:    ExecTests, FunctTests
   build-depends:    cryptonite, base, hspec, QuickCheck, yggdrasil

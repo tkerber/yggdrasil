@@ -8,13 +8,12 @@ import Data.Dynamic
 import Yggdrasil.ExecutionModel
 import Yggdrasil.Distribution
 
-type CRSState b = Maybe b
-crsOp :: Distribution b -> Operation (CRSState b) () b
+crsOp :: Distribution b -> Operation (Maybe b) () b
 crsOp _ (Just x, _, ()) = return (Just x, x)
 crsOp d (Nothing, _, ()) = (\x -> (Just x, x)) <$> doSample d 
 commonRandomString :: Typeable b =>
-    Distribution b -> Functionality (CRSState b) (() ->> b)
-commonRandomString d = Functionality Nothing (strengthenSelf (crsOp d))
+    Distribution b -> Functionality (Maybe b) (() ->> b)
+commonRandomString d = Functionality Nothing (interface (crsOp d))
 
 type ROState a b = [(a, b)]
 roLookup :: Eq a => ROState a b -> a -> Maybe b
@@ -29,4 +28,4 @@ roOp d (xs, _, x') = case roLookup xs x' of
         return ((x', y):xs, y)
 randomOracle :: (Eq a, Typeable a, Typeable b) =>
     Distribution b -> Functionality (ROState a b) (a ->> b)
-randomOracle d = Functionality [] (strengthenSelf (roOp d))
+randomOracle d = Functionality [] (interface (roOp d))

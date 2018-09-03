@@ -7,9 +7,8 @@
              TupleSections #-}
 
 module Yggdrasil.ExecutionModel (
-    Operation, WeakRef, Action,
-    Functionality(..), type (->>), external, weaken, abort, strengthenSelf, self, doSample,
-    send, create, run
+    Operation, WeakRef, Action, Functionality(..), type (->>), (->>), external,
+    weaken, abort, interface, self, doSample, create, run
 ) where
 
 import Control.Monad
@@ -70,7 +69,7 @@ data Action b where
     StrengthenSelf :: Typeable s => Operation s a b -> Action (a ->> b)
     Self :: Action WeakRef
     Sample :: Distribution b -> Action b
-    Send :: (a ->> b) -> a -> Action b
+    Send :: a -> (a ->> b) -> Action b
     Create :: Typeable s => Functionality s b -> Action b
     Compose :: Action c -> (c -> Action b) -> Action b
 
@@ -81,8 +80,8 @@ abort = Abort
 -- | Attempts to add a new operation on ourselves.
 -- This action will fail (effectively aborting) if our state is not of type
 -- 's'.
-strengthenSelf :: Typeable s => Operation s a b -> Action (a ->> b)
-strengthenSelf = StrengthenSelf
+interface :: Typeable s => Operation s a b -> Action (a ->> b)
+interface = StrengthenSelf
 -- | Obtain a weak reference on ourselves.
 self :: Action WeakRef
 self = Self
@@ -91,8 +90,8 @@ doSample :: Distribution b -> Action b
 doSample = Sample
 -- | Send a message to a receipient we know the reference of.
 -- Unless the receipient aborts, he must eventually respond.
-send :: a ->> b -> a -> Action b
-send = Send
+(->>) :: a -> (a ->> b) -> Action b
+(->>) = Send
 -- | Creates a new autonomous party, with a given initial state, and a given
 -- program.
 create :: Typeable s => Functionality s b -> Action b
@@ -117,7 +116,7 @@ run' s wld slf (StrengthenSelf f) =
     (wld, , s) <$> strengthen wld slf f
 run' s wld slf Self = return (wld, slf, s)
 run' s wld _ (Sample d) = let (y, s') = sample s d in Just (wld, y, s')
-run' s (World xs) from (Send to@(Ref idx func) m) = do
+run' s (World xs) from (Send m to@(Ref idx func)) = do
     dyns <- safeIdx xs idx
     st <- fromDynamic dyns
     let action = func (st, from, m)
