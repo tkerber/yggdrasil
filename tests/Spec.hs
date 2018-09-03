@@ -1,4 +1,4 @@
-import Test.Hspec
+import Test.Hspec (hspec)
 
 import qualified ExecTests
 import qualified FunctTests

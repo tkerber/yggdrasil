@@ -4,8 +4,9 @@ module Yggdrasil.Adversarial (
     WithAdversary, Adversary, createAdversarial, noAdversary, dummyAdversary
 ) where
 
-import Data.Dynamic
+import Data.Dynamic (Typeable)
 import Yggdrasil.ExecutionModel
+    (Action, Functionality(Functionality), create, interface')
 
 type WithAdversary b c = Action (Maybe b) -> c
 

@@ -2,11 +2,11 @@
 
 module FunctTests (spec) where
 
-import Crypto.Random
-import Test.Hspec
-import Yggdrasil.ExecutionModel
-import Yggdrasil.Distribution
-import Yggdrasil.Functionalities
+import Crypto.Random (getSystemDRG)
+import Test.Hspec (Spec, describe, it, shouldBe)
+import Yggdrasil.ExecutionModel (Action, create, run)
+import Yggdrasil.Distribution (uniform, sample')
+import Yggdrasil.Functionalities (commonRandomString, randomOracle)
 
 crsSameTest :: Action Bool
 crsSameTest = do

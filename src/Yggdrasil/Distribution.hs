@@ -6,10 +6,10 @@ module Yggdrasil.Distribution (
     Distribution, Sampler, sample, sample', coin, uniform
 ) where
 
-import Control.Monad
-import Crypto.Random
-import Data.Bits
-import Data.Maybe
+import Control.Monad (ap)
+import Crypto.Random (SystemDRG, randomBytesGenerate)
+import Data.Bits ((.&.))
+import Data.Maybe (fromJust)
 import qualified Data.ByteArray as B
 
 newtype Distribution b = Distribution (forall s. Sampler s => s -> (b, s))
@@ -32,6 +32,7 @@ instance Sampler SystemDRG where
     sampleCoin s = (b .&. 1 == 1, s')
       where
         (ba :: B.Bytes, s') = randomBytesGenerate 1 s
+        -- fromJust is safe, as the array is not empty.
         (b, _) = fromJust $ B.uncons ba
 
 sample :: Sampler s => s -> Distribution b -> (b, s)

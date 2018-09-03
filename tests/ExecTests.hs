@@ -2,12 +2,12 @@
 
 module ExecTests (spec) where
 
-import Crypto.Random
-import Data.Maybe
-import Test.Hspec
-import Test.Hspec.QuickCheck
-import Yggdrasil.ExecutionModel
-import Yggdrasil.Distribution
+import Crypto.Random (getSystemDRG)
+import Data.Maybe (fromJust)
+import Test.Hspec (Spec, describe, it, shouldBe)
+import Test.Hspec.QuickCheck (prop)
+import Yggdrasil.ExecutionModel (Action, doSample, external, run, self)
+import Yggdrasil.Distribution (uniform, sample')
 
 inSampleRange :: Int -> Bool
 inSampleRange x = x > 4700 && x < 5300

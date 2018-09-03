@@ -8,11 +8,11 @@ module Yggdrasil.ExecutionModel (
     interface, interface', self, doSample, create, run
 ) where
 
-import Control.Monad
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Maybe
-import Data.Dynamic
-import Yggdrasil.Distribution
+import Control.Monad (ap)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT(MaybeT), runMaybeT)
+import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
+import Yggdrasil.Distribution (Distribution)
 
 newtype World = World [Dynamic]
 

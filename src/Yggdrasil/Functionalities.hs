@@ -4,10 +4,12 @@ module Yggdrasil.Functionalities (
     randomOracle, signature, robustSignature
 ) where
 
-import Data.Dynamic
-import Yggdrasil.Adversarial
-import Yggdrasil.ExecutionModel
-import Yggdrasil.Distribution
+import Data.Dynamic (Typeable)
+import Yggdrasil.Adversarial (WithAdversary)
+import Yggdrasil.ExecutionModel (
+    Action, Functionality(Functionality), Ref, Operation, abort, doSample,
+    interface, interface')
+import Yggdrasil.Distribution (Distribution, coin)
 
 crsOp :: Distribution b -> Operation (Maybe b) () b
 crsOp _ (Just x, _, ()) = return (Just x, x)
