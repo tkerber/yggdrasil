@@ -14,7 +14,7 @@ type Adversary s a b = Functionality s (Action (Maybe a), b)
 -- | An adversary that just returns 'Nothing'.
 noAdversary :: Adversary () a ()
 noAdversary = Functionality ()
-    ((,()) . (\f -> f ()) <$> interface (\_ -> return ((), Nothing)))
+    ((,()) <$> interface' (\_ -> return ((), Nothing)))
 
 -- | An adversary that simply forwards a reference to the environment
 dummyAdversary :: Action (Maybe b) -> Adversary () b ()

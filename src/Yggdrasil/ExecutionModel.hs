@@ -1,11 +1,11 @@
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 
 module Yggdrasil.ExecutionModel (
     Operation, Ref, Action, Functionality(..), external, weaken, abort,
-    interface, self, doSample, create, run
+    interface, interface', self, doSample, create, run
 ) where
 
 import Control.Monad
@@ -80,6 +80,9 @@ abort = Abort
 -- 's'.
 interface :: Typeable s => Operation s a b -> Action (a -> Action b)
 interface = StrengthenSelf
+
+interface' :: Typeable s => Operation s () b -> Action (Action b)
+interface' op = (\f -> f ()) <$> interface op
 -- | Obtain a weak reference on ourselves.
 self :: Action Ref
 self = Self
@@ -102,9 +105,6 @@ instance Monad Action where
 -- | Execute a top-level action in the Yggdrasil execution model.
 run :: Action b -> Distribution (Maybe b)
 run a = runMaybeT $ snd <$> run' (World []) external a
-
---run :: Sampler s => s -> Action b -> Maybe (b, s)
---run s a = (\(_, b, s') -> (b, s')) <$> run' s (World []) external a
 
 run' :: World -> Ref -> Action b -> MaybeT Distribution (World, b)
 run' _ _ Abort = MaybeT $ return Nothing

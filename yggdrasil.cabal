@@ -26,7 +26,6 @@ library
                        Rank2Types
                        ScopedTypeVariables
                        TupleSections
-                       TypeOperators
   build-depends:       base
                      , cryptonite
                      , memory
@@ -38,7 +37,6 @@ library
 test-suite spec
   type:             exitcode-stdio-1.0
   other-extensions: ScopedTypeVariables
-                    TypeOperators
   default-language: Haskell2010
   hs-source-dirs:   tests
   ghc-options:      -Wall -Werror

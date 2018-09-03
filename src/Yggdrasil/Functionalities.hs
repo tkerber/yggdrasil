@@ -14,7 +14,7 @@ crsOp _ (Just x, _, ()) = return (Just x, x)
 crsOp d (Nothing, _, ()) = (\x -> (Just x, x)) <$> doSample d
 commonRandomString :: Typeable b =>
     Distribution b -> Functionality (Maybe b) (Action b)
-commonRandomString d = Functionality Nothing ((\f -> f ()) <$> interface (crsOp d))
+commonRandomString d = Functionality Nothing (interface' (crsOp d))
 
 type ROState a b = [(a, b)]
 roLookup :: Eq a => ROState a b -> a -> Maybe b
