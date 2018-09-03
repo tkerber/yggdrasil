@@ -11,21 +11,21 @@ import Yggdrasil.Functionalities
 
 crsSameTest :: Action Bool
 crsSameTest = do
-    crsHandle <- create commonRandomString (uniform [0..10000::Int])
+    crsHandle <- create $ commonRandomString (uniform [0..10000::Int])
     fst' <- () ->> crsHandle
     snd' <- () ->> crsHandle
     return (fst' == snd')
 
 roSameTest :: Action Bool
 roSameTest = do
-    roHandle :: (Int ->> Int) <- create randomOracle (uniform [0..1000::Int])
+    roHandle :: (Int ->> Int) <- create $ randomOracle (uniform [0..1000::Int])
     fst' <- 1 ->> roHandle
     snd' <- 1 ->> roHandle
     return (fst' == snd')
 
 roAllEqual :: Action Bool
 roAllEqual = do
-    roHandle :: (Int ->> Int) <- create randomOracle (uniform [0..1000::Int])
+    roHandle :: (Int ->> Int) <- create $ randomOracle (uniform [0..1000::Int])
     xs <- sequence [i ->> roHandle | i <- [1..1000]]
     return $ all (== head xs) (tail xs)
 

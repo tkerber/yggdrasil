@@ -17,7 +17,8 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Yggdrasil.Distribution
+  exposed-modules:     Yggdrasil.Adversarial
+                       Yggdrasil.Distribution
                        Yggdrasil.ExecutionModel
                        Yggdrasil.Functionalities
   -- other-modules:

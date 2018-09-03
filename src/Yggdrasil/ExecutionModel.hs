@@ -5,8 +5,9 @@
 {-# LANGUAGE TypeOperators       #-}
 
 module Yggdrasil.ExecutionModel (
-    Operation, WeakRef, Action, Functionality(..), type (->>), (->>), external,
-    weaken, abort, interface, self, doSample, create, run
+    Operation, WeakRef, Action, Functionality(..), type (->>), (->>), (<<-),
+    type (<<-), external, weaken, abort, interface, self, doSample, create,
+    run
 ) where
 
 import Control.Monad
@@ -17,14 +18,15 @@ import Yggdrasil.Distribution
 
 newtype World = World [Dynamic]
 
--- | An operation is a stateful function of '(WeakRef, a) -> Action b' over the
--- state 's'.
+-- | An operation is a stateful function of @('WeakRef', a) -> 'Action' b@ over
+-- the state @s@.
 type Operation s a b = (s, WeakRef, a) -> Action (s, b)
 
-data Functionality s a b = Functionality s (a -> Action b)
+data Functionality s b = Functionality s (Action b)
 
 data a ->> b where
     Ref :: Typeable s => Int -> Operation s a b -> (a ->> b)
+type a <<- b = b ->> a
 
 -- | A weakened reference, that allows comparing entities for equality, but
 -- nothing else.
@@ -70,7 +72,7 @@ data Action b where
     Self :: Action WeakRef
     Sample :: Distribution b -> Action b
     Send :: a -> (a ->> b) -> Action b
-    Create :: Typeable s => Functionality s a b -> a -> Action b
+    Create :: Typeable s => Functionality s b -> Action b
     Compose :: Action c -> (c -> Action b) -> Action b
 
 -- Export visible constructors as functions.
@@ -92,9 +94,11 @@ doSample = Sample
 -- Unless the receipient aborts, he must eventually respond.
 (->>) :: a -> (a ->> b) -> Action b
 (->>) = Send
+(<<-) :: (a ->> b) -> a -> Action b
+a <<- b = b ->> a
 -- | Creates a new autonomous party, with a given initial state, and a given
 -- program.
-create :: Typeable s => Functionality s a b -> a -> Action b
+create :: Typeable s => Functionality s b -> Action b
 create = Create
 
 instance Functor Action where
@@ -126,8 +130,8 @@ run' (World xs) from (Send m to@(Ref idx func)) = do
     xs'' <- MaybeT $ return $ safeWriteIdx xs' idx (toDyn st')
     return (World xs'', y)
     -- Note: This could cause a re-entrancy style bug!
-run' wld _ (Create (Functionality st f) x) =
-    let (wld', from') = new wld st in run' wld' from' (f x)
+run' wld _ (Create (Functionality st a)) =
+    let (wld', from') = new wld st in run' wld' from' a
 run' wld from (Compose a f) = do
     (wld', b) <- run' wld from a
     run' wld' from (f b)
