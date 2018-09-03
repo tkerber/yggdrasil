@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators       #-}
 
 module FunctTests (spec) where
 
@@ -12,21 +11,23 @@ import Yggdrasil.Functionalities
 crsSameTest :: Action Bool
 crsSameTest = do
     crsHandle <- create $ commonRandomString (uniform [0..10000::Int])
-    fst' <- () ->> crsHandle
-    snd' <- () ->> crsHandle
+    fst' <- crsHandle
+    snd' <- crsHandle
     return (fst' == snd')
 
 roSameTest :: Action Bool
 roSameTest = do
-    roHandle :: (Int ->> Int) <- create $ randomOracle (uniform [0..1000::Int])
-    fst' <- 1 ->> roHandle
-    snd' <- 1 ->> roHandle
+    roHandle :: (Int -> Action Int) <- create $
+        randomOracle (uniform [0..1000::Int])
+    fst' <- roHandle 1
+    snd' <- roHandle 1
     return (fst' == snd')
 
 roAllEqual :: Action Bool
 roAllEqual = do
-    roHandle :: (Int ->> Int) <- create $ randomOracle (uniform [0..1000::Int])
-    xs <- sequence [i ->> roHandle | i <- [1..1000]]
+    roHandle :: (Int -> Action Int) <-
+        create $ randomOracle (uniform [0..1000::Int])
+    xs <- sequence [roHandle i | i <- [1..1000]]
     return $ all (== head xs) (tail xs)
 
 spec :: IO Spec
