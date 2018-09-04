@@ -5,10 +5,9 @@
 
 module Yggdrasil.ExecutionModel
   ( Operation
-  , Ref
+  , Ref(External)
   , Action
   , Functionality(..)
-  , external
   , weaken
   , abort
   , interface
@@ -24,10 +23,11 @@ import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
 import           Data.Dynamic              (Dynamic, Typeable, fromDynamic,
                                             toDyn)
-import           Yggdrasil.Distribution    (Distribution)
+import           Yggdrasil.Distribution    (Distribution, coin)
 
-newtype World =
+data World =
   World [Dynamic]
+        [Bool]
 
 -- | An operation is a stateful function of @('Ref, a) -> 'Action' b@ over
 -- the state @s@.
@@ -38,34 +38,36 @@ data Functionality s b =
                 (Action b)
 
 data SendRef a b where
-  SendRef :: Typeable s => Int -> Operation s a b -> SendRef a b
+  SendRef :: Typeable s => RealRef -> Operation s a b -> SendRef a b
 
--- | A weakened reference, that allows comparing entities for equality, but
--- nothing else.
-newtype Ref =
-  Ref Int
+data RealRef =
+  RealRef Int
+          [Bool]
   deriving (Eq)
 
--- | A special reference indicating that something is external of the world.
--- This does not have a corresponding strong reference.
-external :: Ref
-external = Ref (-1)
+data Ref
+  = Ref RealRef
+  | External
+  deriving (Eq)
 
 weaken :: SendRef a b -> Ref
-weaken (SendRef idx _) = Ref idx
+weaken (SendRef ref _) = Ref ref
 
 strengthen ::
-     Typeable s => World -> Ref -> Operation s a b -> Maybe (SendRef a b)
-strengthen (World []) _ _ = Nothing
-strengthen (World (x:_)) (Ref 0) (f :: Operation s a b) = do
+     Typeable s => World -> RealRef -> Operation s a b -> Maybe (SendRef a b)
+strengthen (World [] _) _ _ = Nothing
+strengthen (World _ wid) (RealRef _ wid') _
+  | wid /= wid' = Nothing
+strengthen (World (x:_) _) ref@(RealRef 0 _) (f :: Operation s a b) = do
   _ :: s <- fromDynamic x
-  return $ SendRef 0 f
-strengthen (World (_:xs)) wref f = do
-  (SendRef i f') <- strengthen (World xs) wref f
-  return $ SendRef (i + 1) f'
+  return $ SendRef ref f
+strengthen (World (_:xs) wid) wref f = do
+  (SendRef (RealRef i w) f') <- strengthen (World xs wid) wref f
+  return $ SendRef (RealRef (i + 1) w) f'
 
 new :: Typeable s => World -> s -> (World, Ref)
-new (World xs) s = (World (xs ++ [toDyn s]), Ref (length xs))
+new (World xs wid) s =
+  (World (xs ++ [toDyn s]) wid, Ref (RealRef (length xs) wid))
 
 safeIdx :: [a] -> Int -> Maybe a
 safeIdx [] _ = Nothing
@@ -128,22 +130,28 @@ instance Monad Action where
   a >>= b = Compose a b
 
 -- | Execute a top-level action in the Yggdrasil execution model.
-run :: Action b -> Distribution (Maybe b)
-run a = runMaybeT $ snd <$> run' (World []) external a
+run :: Int -> Action b -> Distribution (Maybe b)
+run secparam a =
+  runMaybeT
+    (do wid <- (lift . sequence) $ map (const coin) [0 .. secparam]
+        snd <$> run' (World [] wid) External a)
 
 run' :: World -> Ref -> Action b -> MaybeT Distribution (World, b)
 run' _ _ Abort = MaybeT $ return Nothing
-run' wld slf (StrengthenSelf f) =
+run' _ External (StrengthenSelf _) = MaybeT $ return Nothing
+run' wld (Ref slf) (StrengthenSelf f) =
   MaybeT $ return $ (wld, ) . Send <$> strengthen wld slf f
 run' wld slf Self = MaybeT $ return $ Just (wld, slf)
 run' wld _ (Sample d) = lift $ (wld, ) <$> d
-run' (World xs) from (Send to@(SendRef idx func) m) = do
+run' (World _ wid) _ (Send (SendRef (RealRef _ wid') _) _)
+  | wid /= wid' = MaybeT $ return Nothing
+run' wld@(World xs _) from (Send (SendRef to@(RealRef idx _) func) m) = do
   dyns <- MaybeT $ return $ safeIdx xs idx
   st <- MaybeT $ return $ fromDynamic dyns
   let action = func (st, from, m)
-  (World xs', (st', y)) <- run' (World xs) (weaken to) action
+  (World xs' wid', (st', y)) <- run' wld (Ref to) action
   xs'' <- MaybeT $ return $ safeWriteIdx xs' idx (toDyn st')
-  return (World xs'', y)
+  return (World xs'' wid', y)
     -- Note: This could cause a re-entrancy style bug!
 run' wld _ (Create (Functionality st a)) =
   let (wld', from') = new wld st

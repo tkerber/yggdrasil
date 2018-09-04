@@ -35,12 +35,13 @@ roAllEqual = do
 spec :: IO Spec
 spec = do
   rnd <- getSystemDRG
+  let secparam = 128
   return $ do
     describe "common random string" $
       it "returns the same value" $
-      sample' rnd (run crsSameTest) `shouldBe` Just True
+      sample' rnd (run secparam crsSameTest) `shouldBe` Just True
     describe "random oracle" $ do
       it "returns the same for the same query" $
-        sample' rnd (run roSameTest) `shouldBe` Just True
+        sample' rnd (run secparam roSameTest) `shouldBe` Just True
       it "is random with different queries" $
-        sample' rnd (run roAllEqual) `shouldBe` Just False
+        sample' rnd (run secparam roAllEqual) `shouldBe` Just False
