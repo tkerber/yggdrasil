@@ -13,10 +13,11 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Yggdrasil.Adversarial
+  exposed-modules:     
                        Yggdrasil.Distribution
                        Yggdrasil.ExecutionModel
-                       Yggdrasil.Functionalities
+                       --Yggdrasil.Functionalities Yggdrasil.Adversarial
+                       Yggdrasil.HList
   other-extensions:    GADTs
                        Rank2Types
                        ScopedTypeVariables

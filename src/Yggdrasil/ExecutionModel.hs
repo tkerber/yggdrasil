@@ -1,13 +1,24 @@
+{-# LANGUAGE DataKinds                 #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE KindSignatures            #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE Rank2Types                #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 {-# LANGUAGE TupleSections             #-}
+{-# LANGUAGE TypeFamilies              #-}
+{-# LANGUAGE TypeFamilyDependencies    #-}
+{-# LANGUAGE TypeOperators             #-}
 
 module Yggdrasil.ExecutionModel
   ( Operation
+  , SendRef
   , Ref(External)
-  , Action
+  , Action(..)
+  , Operations
+  , Interfaces
+  , InterfaceMap
   , Functionality(..)
   , weaken
   , run
@@ -21,14 +32,27 @@ import           Data.STRef                (STRef, newSTRef, readSTRef,
                                             writeSTRef)
 import           Yggdrasil.Distribution    (Distribution, DistributionT (DistributionT, runDistT),
                                             liftDistribution)
+import           Yggdrasil.HList           (HList (Cons, Nil))
 
--- | An operation is a stateful function of @('Ref, a) -> 'Action' b@ over
--- the state @s@.
 type Operation s c a b = c -> Ref s -> a -> Action s (c, b)
 
-data Functionality s c b =
+type family Operations s c (xs :: [*]) :: [*]
+
+type instance Operations s c '[] = '[]
+
+type instance Operations s c ((a, b) ': xs) =
+     Operation s c a b ': Operations s c xs
+
+type family Interfaces s (xs :: [*]) = (ys :: [*]) | ys -> xs
+
+type instance Interfaces s '[] = '[]
+
+type instance Interfaces s ((a, b) ': xs) =
+     SendRef s a b ': Interfaces s xs
+
+data Functionality s c ops =
   Functionality c
-                (Action s b)
+                (HList (Operations s c ops))
 
 type ID s = STRef s ()
 
@@ -50,23 +74,16 @@ instance Eq (Ref s) where
 weaken :: SendRef s a b -> Ref s
 weaken (SendRef ref id' _) = Ref ref id'
 
-data Action s b
-  = Abort
-  | Sample (Distribution b)
-  | forall a. Send (SendRef s a b)
-                   a
-  | forall c. Create (Functionality s c b)
-  | forall c. Compose (Action s c)
-                      (c -> Action s b)
+data Action s b where
+  Abort :: Action s b
+  Sample :: Distribution b -> Action s b
+  Send :: SendRef s a b -> a -> Action s b
+  Create
+    :: InterfaceMap s c ops
+    => Functionality s c ops
+    -> Action s (HList (Interfaces s ops))
+  Compose :: Action s c -> (c -> Action s b) -> Action s b
 
--- | Attempts to add a new operation on ourselves.
--- This action will fail (effectively aborting) if our state is not of type
--- 's'.
---interface :: Operation s c a b -> Action (a -> Action b)
---interface = StrengthenSelf
---
---interface' :: Typeable s => Operation s () b -> Action (Action b)
---interface' op = (\f -> f ()) <$> interface op
 instance Functor (Action s) where
   fmap f x = pure f <*> x
 
@@ -89,8 +106,19 @@ run' from (Send to@(SendRef (ptr :: STRef s c) _ op) msg) = do
   (c', b) <- run' (weaken to) (op c from msg)
   lift . lift $ writeSTRef ptr c'
   return b
-run' _ (Create (Functionality c a)) = do
+run' _ (Create (Functionality c ops)) = do
   ptr <- lift . lift $ newSTRef c
   id' <- lift . lift $ newSTRef ()
-  run' (Ref ptr id') a
+  return $ ifmap ptr id' ops
 run' from (Compose a f) = run' from a >>= run' from . f
+
+-- | Dictates we can create interfaces from operations.
+class InterfaceMap s c (ts :: [*]) where
+  ifmap ::
+       STRef s c -> ID s -> HList (Operations s c ts) -> HList (Interfaces s ts)
+
+instance InterfaceMap s c '[] where
+  ifmap _ _ Nil = Nil
+
+instance InterfaceMap s c as => InterfaceMap s c ((a, b) ': as) where
+  ifmap ref id' (Cons x xs) = Cons (SendRef ref id' x) (ifmap ref id' xs)
