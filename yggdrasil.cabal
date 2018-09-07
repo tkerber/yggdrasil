@@ -16,7 +16,8 @@ library
   exposed-modules:     
                        Yggdrasil.Distribution
                        Yggdrasil.ExecutionModel
-                       --Yggdrasil.Functionalities Yggdrasil.Adversarial
+                       Yggdrasil.Functionalities
+                       -- Yggdrasil.Adversarial
                        Yggdrasil.HList
   other-extensions:    GADTs
                        Rank2Types

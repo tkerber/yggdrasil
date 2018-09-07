@@ -13,18 +13,18 @@
 
 module Yggdrasil.ExecutionModel
   ( Operation
-  , SendRef
+  , RealRef
   , Ref(External)
-  , Action(..)
+  , Action(Abort, Sample, Create)
   , Operations
   , Interfaces
-  , InterfaceMap
   , Functionality(..)
-  , weaken
+  , InterfaceMap
   , run
   ) where
 
 import           Control.Monad             (ap)
+import           Control.Monad.Fail        (MonadFail (fail))
 import           Control.Monad.ST          (ST, runST)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
@@ -36,19 +36,13 @@ import           Yggdrasil.HList           (HList (Cons, Nil))
 
 type Operation s c a b = c -> Ref s -> a -> Action s (c, b)
 
-type family Operations s c (xs :: [*]) :: [*]
+type family Operations s c (xs :: [(*, *)]) :: [*] where
+  Operations s c '[] = '[]
+  Operations s c ('( a, b) ': xs) = Operation s c a b ': Operations s c xs
 
-type instance Operations s c '[] = '[]
-
-type instance Operations s c ((a, b) ': xs) =
-     Operation s c a b ': Operations s c xs
-
-type family Interfaces s (xs :: [*]) = (ys :: [*]) | ys -> xs
-
-type instance Interfaces s '[] = '[]
-
-type instance Interfaces s ((a, b) ': xs) =
-     SendRef s a b ': Interfaces s xs
+type family Interfaces s (xs :: [(*, *)]) = (ys :: [*]) | ys -> xs where
+  Interfaces s '[] = '[]
+  Interfaces s ('( a, b) ': xs) = (a -> Action s b) ': Interfaces s xs
 
 data Functionality s c ops =
   Functionality c
@@ -57,22 +51,24 @@ data Functionality s c ops =
 type ID s = STRef s ()
 
 data SendRef s a b =
-  forall c. SendRef (STRef s c)
-                    (ID s)
+  forall c. SendRef (RealRef s c)
                     (Operation s c a b)
 
+data RealRef s a =
+  RealRef (STRef s a)
+          (ID s)
+
 data Ref s
-  = forall a. Ref (STRef s a)
-                  (ID s)
+  = forall a. Ref (RealRef s a)
   | External
 
 instance Eq (Ref s) where
   External == External = True
-  Ref _ a == Ref _ b = a == b
+  Ref (RealRef _ a) == Ref (RealRef _ b) = a == b
   _ == _ = False
 
 weaken :: SendRef s a b -> Ref s
-weaken (SendRef ref id' _) = Ref ref id'
+weaken (SendRef ref _) = Ref ref
 
 data Action s b where
   Abort :: Action s b
@@ -80,7 +76,7 @@ data Action s b where
   Send :: SendRef s a b -> a -> Action s b
   Create
     :: InterfaceMap s c ops
-    => Functionality s c ops
+    => Functionality s c (ops :: [(*, *)])
     -> Action s (HList (Interfaces s ops))
   Compose :: Action s c -> (c -> Action s b) -> Action s b
 
@@ -94,6 +90,9 @@ instance Applicative (Action s) where
 instance Monad (Action s) where
   a >>= b = Compose a b
 
+instance MonadFail (Action s) where
+  fail _ = Abort
+
 run :: (forall s. Action s b) -> DistributionT Maybe b
 run a =
   DistributionT $ \rng -> runST $ runMaybeT $ runDistT (run' External a) rng
@@ -101,7 +100,7 @@ run a =
 run' :: Ref s -> Action s b -> DistributionT (MaybeT (ST s)) b
 run' _ Abort = DistributionT $ \_ -> MaybeT $ return Nothing
 run' _ (Sample d) = liftDistribution d
-run' from (Send to@(SendRef (ptr :: STRef s c) _ op) msg) = do
+run' from (Send to@(SendRef (RealRef (ptr :: STRef s c) _) op) msg) = do
   c <- lift . lift $ readSTRef ptr
   (c', b) <- run' (weaken to) (op c from msg)
   lift . lift $ writeSTRef ptr c'
@@ -109,16 +108,15 @@ run' from (Send to@(SendRef (ptr :: STRef s c) _ op) msg) = do
 run' _ (Create (Functionality c ops)) = do
   ptr <- lift . lift $ newSTRef c
   id' <- lift . lift $ newSTRef ()
-  return $ ifmap ptr id' ops
+  return $ ifmap (RealRef ptr id') ops
 run' from (Compose a f) = run' from a >>= run' from . f
 
 -- | Dictates we can create interfaces from operations.
-class InterfaceMap s c (ts :: [*]) where
-  ifmap ::
-       STRef s c -> ID s -> HList (Operations s c ts) -> HList (Interfaces s ts)
+class InterfaceMap s c (ts :: [(*, *)]) where
+  ifmap :: RealRef s c -> HList (Operations s c ts) -> HList (Interfaces s ts)
 
 instance InterfaceMap s c '[] where
-  ifmap _ _ Nil = Nil
+  ifmap _ Nil = Nil
 
-instance InterfaceMap s c as => InterfaceMap s c ((a, b) ': as) where
-  ifmap ref id' (Cons x xs) = Cons (SendRef ref id' x) (ifmap ref id' xs)
+instance InterfaceMap s c as => InterfaceMap s c ('( a, b) ': as) where
+  ifmap ref (Cons x xs) = Cons (\a -> Send (SendRef ref x) a) (ifmap ref xs)
