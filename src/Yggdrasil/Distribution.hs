@@ -3,19 +3,22 @@
 {-# LANGUAGE TupleSections       #-}
 
 module Yggdrasil.Distribution
-  ( Distribution
+  ( Distribution(Distribution)
+  , DistributionT(DistributionT, runDistT)
   , Sampler
   , sample
   , sample'
   , coin
   , uniform
+  , liftDistribution
   ) where
 
-import           Control.Monad  (ap)
-import           Crypto.Random  (SystemDRG, randomBytesGenerate)
-import           Data.Bits      ((.&.))
-import qualified Data.ByteArray as B
-import           Data.Maybe     (fromJust)
+import           Control.Monad             (ap)
+import           Control.Monad.Trans.Class (MonadTrans (lift))
+import           Crypto.Random             (SystemDRG, randomBytesGenerate)
+import           Data.Bits                 ((.&.))
+import qualified Data.ByteArray            as B
+import           Data.Maybe                (fromJust)
 
 newtype Distribution b =
   Distribution (forall s. Sampler s =>
@@ -35,6 +38,28 @@ instance Monad Distribution where
          let (a', s') = sample s a
              (b', s'') = sample s' (b a')
           in (b', s''))
+
+newtype DistributionT m b = DistributionT
+  { runDistT :: forall s. Sampler s =>
+                            s -> m (b, s)
+  }
+
+instance Monad m => Functor (DistributionT m) where
+  fmap f x = pure f <*> x
+
+instance Monad m => Applicative (DistributionT m) where
+  pure x = DistributionT $ pure . (x, )
+  (<*>) = ap
+
+instance Monad m => Monad (DistributionT m) where
+  a >>= b =
+    DistributionT (\s -> (runDistT a) s >>= (\(a', s') -> (runDistT (b a')) s'))
+
+instance MonadTrans DistributionT where
+  lift m = DistributionT $ \s -> (, s) <$> m
+
+liftDistribution :: Monad m => Distribution b -> DistributionT m b
+liftDistribution d = DistributionT $ \s -> return $ sample s d
 
 class Sampler s where
   sampleCoin :: s -> (Bool, s)
