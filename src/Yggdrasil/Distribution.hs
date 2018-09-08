@@ -14,6 +14,7 @@ module Yggdrasil.Distribution
   ) where
 
 import           Control.Monad             (ap)
+import           Control.Monad.State.Lazy  (State, runState, state)
 import           Control.Monad.Trans.Class (MonadTrans (lift))
 import           Crypto.Random             (SystemDRG, randomBytesGenerate)
 import           Data.Bits                 ((.&.))
@@ -22,18 +23,19 @@ import           Data.Maybe                (fromJust)
 
 newtype Distribution b =
   Distribution (forall s. Sampler s =>
-                            s -> (b, s))
+                            State s b)
 
 instance Functor Distribution where
   fmap f x = pure f <*> x
 
 instance Applicative Distribution where
-  pure x = Distribution (x, )
+  pure x = Distribution $ state (x, )
   (<*>) = ap
 
 instance Monad Distribution where
   a >>= b =
-    Distribution
+    Distribution $
+    state
       (\s ->
          let (a', s') = sample s a
              (b', s'') = sample s' (b a')
@@ -72,13 +74,13 @@ instance Sampler SystemDRG where
       (b, _) = fromJust $ B.uncons ba
 
 sample :: Sampler s => s -> Distribution b -> (b, s)
-sample s (Distribution f) = f s
+sample s (Distribution st) = runState st s
 
 sample' :: Sampler s => s -> Distribution b -> b
 sample' s = fst . sample s
 
 coin :: Distribution Bool
-coin = Distribution sampleCoin
+coin = Distribution $ state sampleCoin
 
 uniform :: [a] -> Distribution a
 uniform xs = do

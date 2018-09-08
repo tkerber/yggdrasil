@@ -10,11 +10,11 @@ import           Test.Hspec                (Spec, describe, it, shouldBe)
 import           Yggdrasil.Distribution    (runDistT, uniform)
 import           Yggdrasil.ExecutionModel  (Action (Create), run)
 import           Yggdrasil.Functionalities (commonRandomString, randomOracle)
-import           Yggdrasil.HList           (HList (Cons, Nil))
+import           Yggdrasil.HList           (HList ((:::), Nil))
 
 crsSameTest :: Action s Bool
 crsSameTest = do
-  (Cons crsHandle Nil) <-
+  (crsHandle ::: Nil) <-
     Create $ commonRandomString (uniform [0 .. 10000 :: Int])
   fst' <- crsHandle ()
   snd' <- crsHandle ()
@@ -22,7 +22,7 @@ crsSameTest = do
 
 roSameTest :: Action s Bool
 roSameTest = do
-  (Cons (roHandle :: Int -> Action s Int) Nil) <-
+  ((roHandle :: Int -> Action s Int) ::: Nil) <-
     Create $ randomOracle (uniform [0 .. 1000 :: Int])
   fst' <- roHandle 1
   snd' <- roHandle 1
@@ -30,7 +30,7 @@ roSameTest = do
 
 roAllEqual :: Action s Bool
 roAllEqual = do
-  (Cons (roHandle :: Int -> Action s Int) Nil) <-
+  ((roHandle :: Int -> Action s Int) ::: Nil) <-
     Create $ randomOracle (uniform [0 .. 1000 :: Int])
   xs <- sequence [roHandle i | i <- [1 .. 1000]]
   return $ all (== head xs) (tail xs)

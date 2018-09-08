@@ -9,4 +9,4 @@ module Yggdrasil.HList
 
 data HList :: [*] -> * where
   Nil :: HList '[]
-  Cons :: a -> HList as -> HList (a ': as)
+  (:::) :: a -> HList as -> HList (a ': as)

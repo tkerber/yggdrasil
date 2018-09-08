@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds     #-}
+{-# LANGUAGE LambdaCase    #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Yggdrasil.Functionalities
@@ -11,40 +12,48 @@ module Yggdrasil.Functionalities
   --, robustSignature
   ) where
 
+import           Control.Monad.State.Lazy  (get, modify, put)
+import           Control.Monad.Trans.Class (lift)
+
 --import           Yggdrasil.Adversarial    (WithAdversary)
-import           Yggdrasil.Distribution   (Distribution)
-import           Yggdrasil.ExecutionModel (Action (Sample),
-                                           Functionality (Functionality),
-                                           Operation)
-import           Yggdrasil.HList          (HList (Cons, Nil))
+import           Yggdrasil.Distribution    (Distribution)
+import           Yggdrasil.ExecutionModel  (Action (Sample),
+                                            Functionality (Functionality),
+                                            Operation)
+import           Yggdrasil.HList           (HList ((:::), Nil))
 
 crsOp :: Distribution b -> Operation s (Maybe b) () b
-crsOp _ (Just x) _ () = return (Just x, x)
-crsOp d Nothing _ ()  = (\x -> (Just x, x)) <$> Sample d
+crsOp d _ () =
+  get >>= \case
+    Just x -> return x
+    Nothing -> do
+      x <- lift $ Sample d
+      put $ Just x
+      return x
 
-commonRandomString ::
-     Distribution b -> Functionality s (Maybe b) ('( (), b) ': '[])
-commonRandomString d = Functionality Nothing (Cons (crsOp d) Nil)
+commonRandomString :: Distribution b -> Functionality s (Maybe b) '[ '( (), b)]
+commonRandomString d = Functionality Nothing (crsOp d ::: Nil)
 
 type ROState a b = [(a, b)]
 
-roLookup :: Eq a => ROState a b -> a -> Maybe b
-roLookup [] _ = Nothing
-roLookup ((x, y):_) x'
+roLookup :: Eq a => a -> ROState a b -> Maybe b
+roLookup _ [] = Nothing
+roLookup x' ((x, y):_)
   | x == x' = Just y
-roLookup (_:xs) x = roLookup xs x
+roLookup x (_:xs) = roLookup x xs
 
 roOp :: Eq a => Distribution b -> Operation s (ROState a b) a b
-roOp d xs _ x =
-  case roLookup xs x of
-    Just y -> return (xs, y)
+roOp d _ x =
+  (roLookup x <$> get) >>= \case
+    Just y -> return y
     Nothing -> do
-      y <- Sample d
-      return ((x, y) : xs, y)
+      y <- lift $ Sample d
+      modify ((x, y) :)
+      return y
 
 randomOracle ::
-     Eq a => Distribution b -> Functionality s (ROState a b) ('( a, b) ': '[])
-randomOracle d = Functionality [] (Cons (roOp d) Nil)
+     Eq a => Distribution b -> Functionality s (ROState a b) '[ '( a, b)]
+randomOracle d = Functionality [] (roOp d ::: Nil)
 -- TODO: Don't abort with bad adversaries? Would probably need a specialised s
 -- though.
 --type SigState m s = [(m, s, Ref)]

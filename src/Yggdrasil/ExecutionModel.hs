@@ -26,15 +26,16 @@ module Yggdrasil.ExecutionModel
 import           Control.Monad             (ap)
 import           Control.Monad.Fail        (MonadFail (fail))
 import           Control.Monad.ST          (ST, runST)
+import           Control.Monad.State.Lazy  (StateT, runStateT)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
 import           Data.STRef                (STRef, newSTRef, readSTRef,
                                             writeSTRef)
 import           Yggdrasil.Distribution    (Distribution, DistributionT (DistributionT, runDistT),
                                             liftDistribution)
-import           Yggdrasil.HList           (HList (Cons, Nil))
+import           Yggdrasil.HList           (HList ((:::), Nil))
 
-type Operation s c a b = c -> Ref s -> a -> Action s (c, b)
+type Operation s c a b = Ref s -> a -> StateT c (Action s) b
 
 type family Operations s c (xs :: [(*, *)]) :: [*] where
   Operations s c '[] = '[]
@@ -102,7 +103,7 @@ run' _ Abort = DistributionT $ \_ -> MaybeT $ return Nothing
 run' _ (Sample d) = liftDistribution d
 run' from (Send to@(SendRef (RealRef (ptr :: STRef s c) _) op) msg) = do
   c <- lift . lift $ readSTRef ptr
-  (c', b) <- run' (weaken to) (op c from msg)
+  (b, c') <- run' (weaken to) (runStateT (op from msg) c)
   lift . lift $ writeSTRef ptr c'
   return b
 run' _ (Create (Functionality c ops)) = do
@@ -119,4 +120,4 @@ instance InterfaceMap s c '[] where
   ifmap _ Nil = Nil
 
 instance InterfaceMap s c as => InterfaceMap s c ('( a, b) ': as) where
-  ifmap ref (Cons x xs) = Cons (\a -> Send (SendRef ref x) a) (ifmap ref xs)
+  ifmap ref (x ::: xs) = (\a -> Send (SendRef ref x) a) ::: ifmap ref xs
