@@ -13,7 +13,7 @@ module Yggdrasil.Distribution
   , liftDistribution
   ) where
 
-import           Control.Monad             ((>=>), ap)
+import           Control.Monad             (ap, (>=>))
 import           Control.Monad.State.Lazy  (State, runState, state)
 import           Control.Monad.Trans.Class (MonadTrans (lift))
 import           Crypto.Random             (SystemDRG, randomBytesGenerate)

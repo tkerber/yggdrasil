@@ -19,6 +19,7 @@ module Yggdrasil.ExecutionModel
   , Interfaces
   , Functionality(..)
   , InterfaceMap
+  , ForceSample(forceSample)
   , run
   ) where
 
@@ -31,7 +32,7 @@ import           Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
 import           Data.STRef                (STRef, newSTRef, readSTRef,
                                             writeSTRef)
 import           Yggdrasil.Distribution    (Distribution, DistributionT (DistributionT, runDistT),
-                                            liftDistribution)
+                                            coin, liftDistribution)
 import           Yggdrasil.HList           (HList ((:::), Nil))
 
 type Operation s c a b = Ref s -> a -> StateT c (Action s) b
@@ -123,3 +124,9 @@ instance InterfaceMap s c '[] where
 
 instance InterfaceMap s c as => InterfaceMap s c ('( a, b) ': as) where
   ifmap ref (x ::: xs) = Send (SendRef ref x) ::: ifmap ref xs
+
+class ForceSample t where
+  forceSample :: Action s t
+
+instance ForceSample [Bool] where
+  forceSample = SecParam >>= (\sp -> sequence [Sample coin | _ <- [0 .. sp]])
