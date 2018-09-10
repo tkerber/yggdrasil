@@ -1,39 +1,79 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE ExplicitNamespaces     #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE KindSignatures         #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE TypeApplications       #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE TypeOperators          #-}
 
 module Yggdrasil.Adversarial
-  ( WithAdversary
-  , Adversary
+  ( Adversary
+  , WithAdversary
+  , NoAdversary(noAdversary)
+  , DummyInterfaces
+  , DummyAdversary(dummyAdversary)
   , createAdversarial
-  , noAdversary
-  , dummyAdversary
   ) where
 
-import           Data.Dynamic             (Typeable)
-import           Yggdrasil.ExecutionModel (Action,
-                                           Functionality (Functionality),
-                                           create, interface')
+import           Control.Monad.Trans.Class (lift)
+import           Yggdrasil.ExecutionModel  (Action (Create),
+                                            Functionality (Functionality),
+                                            InterfaceMap, Interfaces, Operation,
+                                            Operations, Ref)
+import           Yggdrasil.HList           (type (+|+), HList ((:::), Nil),
+                                            HSplit (hsplit))
 
-type WithAdversary b c = Action (Maybe b) -> c
+type family MaybeMap (bs :: [(*, *)]) = (ys :: [(*, *)]) | ys -> bs where
+  MaybeMap '[] = '[]
+  MaybeMap ('( a, b) ': xs) = '( a, Maybe b) ': MaybeMap xs
 
-type Adversary s a b = Functionality s (Action (Maybe a), b)
+type WithAdversary s (ts :: [(*, *)]) b
+   = HList (Interfaces s (MaybeMap ts)) -> b
 
--- | An adversary that just returns 'Nothing'.
-noAdversary :: Adversary () a ()
-noAdversary =
-  Functionality () ((, ()) <$> interface' (\_ -> return ((), Nothing)))
+type Adversary s c as bs = Functionality s c (as +|+ MaybeMap bs)
 
--- | An adversary that simply forwards a reference to the environment
-dummyAdversary :: Action (Maybe b) -> Adversary () b ()
-dummyAdversary ref = Functionality () (return (ref, ()))
+class NoAdversary s (bs :: [(*, *)]) where
+  nullOperations :: HList (Operations s () (MaybeMap bs))
+  noAdversary :: Adversary s () '[] bs
+  noAdversary = Functionality () (nullOperations @s @bs)
 
--- | Given an adversary, and a functionality that requires one, link the two
--- and return their respective handles.
+instance NoAdversary s '[] where
+  nullOperations = Nil
+
+instance NoAdversary s xs => NoAdversary s ('( a, b) ': xs) where
+  nullOperations = (\_ _ -> return Nothing) ::: nullOperations @s @xs
+
+type family DummyInterfaces s (xs :: [(*, *)]) = (ys :: [*]) | ys -> xs where
+  DummyInterfaces s '[] = '[]
+  DummyInterfaces s ('( a, b) ': xs) = (Ref s -> a -> Action s b) ': DummyInterfaces s xs
+
+class DummyAdversary s (bs :: [(*, *)]) where
+  operations ::
+       HList (DummyInterfaces s (MaybeMap bs))
+    -> HList (Operations s () (MaybeMap bs))
+  dummyAdversary ::
+       HList (DummyInterfaces s (MaybeMap bs)) -> Adversary s () '[] bs
+  dummyAdversary = Functionality () . operations @s @bs
+
+instance DummyAdversary s '[] where
+  operations _ = Nil
+
+instance DummyAdversary s bs => DummyAdversary s ('( a, b) ': bs) where
+  operations (b ::: bs) =
+    ((\ref x -> lift $ b ref x) :: Operation s () a (Maybe b)) :::
+    operations @s @bs bs
+
 createAdversarial ::
-     (Typeable s, Typeable s')
-  => Adversary s a c
-  -> WithAdversary a (Functionality s' b)
-  -> Action (b, c)
-createAdversarial adv fnc = do
-  (advFnc, advEnv) <- create adv
-  fncEnv <- create $ fnc advFnc
-  return (fncEnv, advEnv)
+     ( HSplit (Interfaces s (as +|+ MaybeMap bs)) (Interfaces s as) (Interfaces s (MaybeMap bs))
+     , InterfaceMap s c (as +|+ MaybeMap bs)
+     )
+  => Adversary s c as bs
+  -> WithAdversary s bs b
+  -> Action s (HList (Interfaces s as), b)
+createAdversarial adv f = (\(a, b) -> (a, f b)) <$> hsplit <$> Create adv

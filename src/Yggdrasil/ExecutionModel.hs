@@ -37,7 +37,7 @@ import           Yggdrasil.HList           (HList ((:::), Nil))
 
 type Operation s c a b = Ref s -> a -> StateT c (Action s) b
 
-type family Operations s c (xs :: [(*, *)]) :: [*] where
+type family Operations s c (xs :: [(*, *)]) = (ys :: [*]) | ys -> xs where
   Operations s c '[] = '[]
   Operations s c ('( a, b) ': xs) = Operation s c a b ': Operations s c xs
 

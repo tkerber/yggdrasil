@@ -17,7 +17,7 @@ library
                        Yggdrasil.Distribution
                        Yggdrasil.ExecutionModel
                        Yggdrasil.Functionalities
-                       -- Yggdrasil.Adversarial
+                       Yggdrasil.Adversarial
                        Yggdrasil.HList
   other-extensions:    GADTs
                        Rank2Types
