@@ -10,6 +10,8 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 
+-- | Provides heterogeneous lists through 'HList', as well as some type and
+-- value level operations on them.
 module Yggdrasil.HList
   ( HList(..)
   , type (+|+)
@@ -18,14 +20,17 @@ module Yggdrasil.HList
   ) where
 
 infixr 5 :::
+-- | A heterogeneous list.
 data HList :: [*] -> * where
   Nil :: HList '[]
   (:::) :: a -> HList as -> HList (a ': as)
 
+-- | Type-level appending of lists.
 type family (as :: [k]) +|+ (bs :: [k]) :: [k] where
   '[] +|+ bs = bs
   (a ': as) +|+ bs = a ': (as +|+ bs)
 
+-- | Value-level appending of 'HList's.
 class HAppend as bs where
   (+++) :: HList as -> HList bs -> HList (as +|+ bs)
 
@@ -35,6 +40,7 @@ instance HAppend '[] bs where
 instance HAppend as bs => HAppend (a ': as) bs where
   (a ::: as) +++ bs = a ::: (as +++ bs)
 
+-- | Split a 'HList' at the value level given the type-level components.
 class HSplit hs as bs where
   hsplit :: HList hs -> (HList as, HList bs)
 
