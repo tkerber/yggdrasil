@@ -13,11 +13,12 @@
 
 module Yggdrasil.Adversarial
   ( Adversary
+  , MaybeMap
   , WithAdversary
   , WithAdversary'(..)
-  , NoAdversary(noAdversary)
+  , NoAdversary(..)
   , DummyInterfaces
-  , DummyAdversary(dummyAdversary)
+  , DummyAdversary(..)
   , CreateAdversarial(..)
   ) where
 

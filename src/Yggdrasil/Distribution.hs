@@ -2,45 +2,28 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
 
+-- | Provides primitives for high-level cryptographic sampling.
 module Yggdrasil.Distribution
-  ( Distribution(Distribution)
+  ( Distribution
   , DistributionT(DistributionT, runDistT)
-  , Sampler
-  , sample
-  , sample'
+  , Sampler(..)
+  , liftDistribution
   , coin
   , uniform
-  , liftDistribution
   ) where
 
 import           Control.Monad             (ap, (>=>))
-import           Control.Monad.State.Lazy  (State, runState, state)
 import           Control.Monad.Trans.Class (MonadTrans (lift))
 import           Crypto.Random             (SystemDRG, randomBytesGenerate)
 import           Data.Bits                 ((.&.))
 import qualified Data.ByteArray            as B
+import           Data.Functor.Identity     (Identity (Identity), runIdentity)
 import           Data.Maybe                (fromJust)
 
-newtype Distribution b =
-  Distribution (forall s. Sampler s =>
-                            State s b)
+-- | Allows randomly sampling elements of type @b@.
+type Distribution = DistributionT Identity
 
-instance Functor Distribution where
-  fmap f x = pure f <*> x
-
-instance Applicative Distribution where
-  pure x = Distribution $ state (x, )
-  (<*>) = ap
-
-instance Monad Distribution where
-  a >>= b =
-    Distribution $
-    state
-      (\s ->
-         let (a', s') = sample s a
-             (b', s'') = sample s' (b a')
-          in (b', s''))
-
+-- | Allows randomly sampling elements of type @b@ in the context of monad @m@.
 newtype DistributionT m b = DistributionT
   { runDistT :: forall s. Sampler s =>
                             s -> m (b, s)
@@ -59,11 +42,17 @@ instance Monad m => Monad (DistributionT m) where
 instance MonadTrans DistributionT where
   lift m = DistributionT $ \s -> (, s) <$> m
 
-liftDistribution :: Monad m => Distribution b -> DistributionT m b
-liftDistribution d = DistributionT $ \s -> return $ sample s d
-
-class Sampler s where
+-- | Provides randomness.
+class Sampler s
+  where
+  -- | Produce a bit of randomness.
   sampleCoin :: s -> (Bool, s)
+  -- | Samples a distribution.
+  sample :: s -> DistributionT m b -> m (b, s)
+  sample s d = runDistT d s
+  -- | Samples a distribution, discarding the result randomness.
+  sample' :: Monad m => s -> DistributionT m b -> m b
+  sample' s d = fst <$> sample s d
 
 instance Sampler SystemDRG where
   sampleCoin s = (b .&. 1 == 1, s')
@@ -72,15 +61,15 @@ instance Sampler SystemDRG where
         -- fromJust is safe, as the array is not empty.
       (b, _) = fromJust $ B.uncons ba
 
-sample :: Sampler s => s -> Distribution b -> (b, s)
-sample s (Distribution st) = runState st s
+-- | Lifts a 'Distribution' to an arbitrary monadic 'DistributionT'.
+liftDistribution :: Monad m => Distribution b -> DistributionT m b
+liftDistribution d = DistributionT $ return . runIdentity . runDistT d
 
-sample' :: Sampler s => s -> Distribution b -> b
-sample' s = fst . sample s
-
+-- | Tosses a fair coin.
 coin :: Distribution Bool
-coin = Distribution $ state sampleCoin
+coin = DistributionT (Identity . sampleCoin)
 
+-- | A uniform 'Distribution' over all elements of @[a]@.
 uniform :: [a] -> Distribution a
 uniform xs = do
   let l = length xs

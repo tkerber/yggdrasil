@@ -8,7 +8,7 @@ import           Crypto.Random            (getSystemDRG)
 import           Data.Maybe               (fromJust)
 import           Test.Hspec               (Spec, describe, it, shouldBe)
 import           Test.Hspec.QuickCheck    (prop)
-import           Yggdrasil.Distribution   (runDistT, uniform)
+import           Yggdrasil.Distribution   (sample', uniform)
 import           Yggdrasil.ExecutionModel (Action (Sample), run)
 
 inSampleRange :: Int -> Bool
@@ -30,7 +30,6 @@ spec = do
   return $
     describe "action" $ do
       prop "obeys return" $ \(x :: String) ->
-        (fst <$> runDistT (run (return x)) rnd) == Just x
+        sample' rnd (run (return x)) == Just x
       it "samples evenly" $
-        inSampleRange (fst $ fromJust $ runDistT (run sampleTest) rnd) `shouldBe`
-        True
+        inSampleRange (fromJust $ sample' rnd (run sampleTest)) `shouldBe` True

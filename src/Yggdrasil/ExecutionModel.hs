@@ -18,7 +18,7 @@ module Yggdrasil.ExecutionModel
   , Operations
   , Interfaces
   , Functionality(..)
-  , InterfaceMap
+  , InterfaceMap(..)
   , ForceSample(forceSample)
   , run
   ) where

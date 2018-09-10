@@ -7,7 +7,7 @@ module FunctTests
 
 import           Crypto.Random             (getSystemDRG)
 import           Test.Hspec                (Spec, describe, it, shouldBe)
-import           Yggdrasil.Distribution    (runDistT, uniform)
+import           Yggdrasil.Distribution    (sample', uniform)
 import           Yggdrasil.ExecutionModel  (Action (Create), run)
 import           Yggdrasil.Functionalities (commonRandomString, randomOracle)
 import           Yggdrasil.HList           (HList ((:::), Nil))
@@ -41,9 +41,9 @@ spec = do
   return $ do
     describe "common random string" $
       it "returns the same value" $
-      (fst <$> runDistT (run crsSameTest) rnd) `shouldBe` Just True
+      sample' rnd (run crsSameTest) `shouldBe` Just True
     describe "random oracle" $ do
       it "returns the same for the same query" $
-        (fst <$> runDistT (run roSameTest) rnd) `shouldBe` Just True
+        sample' rnd (run roSameTest) `shouldBe` Just True
       it "is random with different queries" $
-        (fst <$> runDistT (run roAllEqual) rnd) `shouldBe` Just False
+        sample' rnd (run roAllEqual) `shouldBe` Just False
