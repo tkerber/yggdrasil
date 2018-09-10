@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 
+-- | A collection of common functionalities, ready for use.
 module Yggdrasil.Functionalities
   ( ROState
   , SigState
@@ -33,9 +34,12 @@ crsOp d _ () =
       put $ Just x
       return x
 
+-- | A CRS functionality over a given distribution.
 commonRandomString :: Distribution b -> Functionality s (Maybe b) '[ '( (), b)]
 commonRandomString d = Functionality Nothing (crsOp d ::: Nil)
 
+-- | The state of a 'randomOracle'. Consists of previously recorded
+-- query/response pairs.
 type ROState a b = [(a, b)]
 
 roLookup :: Eq a => a -> ROState a b -> Maybe b
@@ -53,10 +57,13 @@ roOp d _ x =
       modify ((x, y) :)
       return y
 
+-- | A random oracle functionality, over a given distribution.
 randomOracle ::
      Eq a => Distribution b -> Functionality s (ROState a b) '[ '( a, b)]
 randomOracle d = Functionality [] (roOp d ::: Nil)
 
+-- | The state of a 'signature' functionality. Consists of previously recorded
+-- signatures, and their corresponding messages and signers.
 type SigState s msg sig = [(msg, sig, Ref s)]
 
 verifyOp ::
@@ -89,6 +96,7 @@ fixAdv (sign ::: Nil) = sign' ::: Nil
         then forceSample' msg ref
         else return sig
 
+-- | A robust signature functionality.
 signature ::
      (Eq msg, Eq sig, ForceSample sig)
   => WithAdversary' s (SigState s msg sig)

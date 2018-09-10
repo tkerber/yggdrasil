@@ -1,8 +1,8 @@
 # Revision history for yggdrasil
 
-## 0.1.0.0 -- YYYY-mm-dd
+## 0.1.0.0 -- 2018-09-10
 
-* First version. Released on an unsuspecting world.
-* Provide an UC-like execution model.
+* Provide an UC-like, strictly typed execution model.
 * Provide randomness distributions.
-* Provide a (mostly) sane global state. (In particular, it is safe once weakened)
+* Provide a typed model for arbitrary adversaries.
+* Implement random oracles, crs, and signatures.
