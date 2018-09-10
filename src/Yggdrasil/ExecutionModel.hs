@@ -6,7 +6,6 @@
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE Rank2Types                #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE TupleSections             #-}
 {-# LANGUAGE TypeFamilies              #-}
 {-# LANGUAGE TypeFamilyDependencies    #-}
 {-# LANGUAGE TypeOperators             #-}
@@ -15,7 +14,7 @@ module Yggdrasil.ExecutionModel
   ( Operation
   , RealRef
   , Ref(External)
-  , Action(Abort, Sample, Create)
+  , Action(Abort, Sample, Create, SecParam)
   , Operations
   , Interfaces
   , Functionality(..)
@@ -73,6 +72,7 @@ weaken (SendRef ref _) = Ref ref
 
 data Action s b where
   Abort :: Action s b
+  SecParam :: Action s Int
   Sample :: Distribution b -> Action s b
   Send :: SendRef s a b -> a -> Action s b
   Create
@@ -100,6 +100,8 @@ run a =
 
 run' :: Ref s -> Action s b -> DistributionT (MaybeT (ST s)) b
 run' _ Abort = DistributionT $ \_ -> MaybeT $ return Nothing
+-- TODO: Make a parameter
+run' _ SecParam = return 128
 run' _ (Sample d) = liftDistribution d
 run' from (Send to@(SendRef (RealRef (ptr :: STRef s c) _) op) msg) = do
   c <- lift . lift $ readSTRef ptr
@@ -120,4 +122,4 @@ instance InterfaceMap s c '[] where
   ifmap _ Nil = Nil
 
 instance InterfaceMap s c as => InterfaceMap s c ('( a, b) ': as) where
-  ifmap ref (x ::: xs) = (\a -> Send (SendRef ref x) a) ::: ifmap ref xs
+  ifmap ref (x ::: xs) = Send (SendRef ref x) ::: ifmap ref xs

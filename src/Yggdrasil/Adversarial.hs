@@ -6,7 +6,6 @@
 {-# LANGUAGE KindSignatures         #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TupleSections          #-}
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
@@ -15,12 +14,14 @@
 module Yggdrasil.Adversarial
   ( Adversary
   , WithAdversary
+  , WithAdversary'(..)
   , NoAdversary(noAdversary)
   , DummyInterfaces
   , DummyAdversary(dummyAdversary)
-  , createAdversarial
+  , CreateAdversarial(..)
   ) where
 
+import           Control.Arrow             (second)
 import           Control.Monad.Trans.Class (lift)
 import           Yggdrasil.ExecutionModel  (Action (Create),
                                             Functionality (Functionality),
@@ -33,8 +34,12 @@ type family MaybeMap (bs :: [(*, *)]) = (ys :: [(*, *)]) | ys -> bs where
   MaybeMap '[] = '[]
   MaybeMap ('( a, b) ': xs) = '( a, Maybe b) ': MaybeMap xs
 
-type WithAdversary s (ts :: [(*, *)]) b
-   = HList (Interfaces s (MaybeMap ts)) -> b
+newtype WithAdversary s (ts :: [(*, *)]) b =
+  WithAdversary (HList (Interfaces s (MaybeMap ts)) -> b)
+
+data WithAdversary' s c (as :: [(*, *)]) (bs :: [(*, *)]) =
+  WithAdversary' (HList (Interfaces s (MaybeMap as)) -> HList (Operations s c as))
+                 (HList (Operations s c as) -> Functionality s c bs)
 
 type Adversary s c as bs = Functionality s c (as +|+ MaybeMap bs)
 
@@ -69,11 +74,18 @@ instance DummyAdversary s bs => DummyAdversary s ('( a, b) ': bs) where
     ((\ref x -> lift $ b ref x) :: Operation s () a (Maybe b)) :::
     operations @s @bs bs
 
-createAdversarial ::
-     ( HSplit (Interfaces s (as +|+ MaybeMap bs)) (Interfaces s as) (Interfaces s (MaybeMap bs))
-     , InterfaceMap s c (as +|+ MaybeMap bs)
-     )
-  => Adversary s c as bs
-  -> WithAdversary s bs b
-  -> Action s (HList (Interfaces s as), b)
-createAdversarial adv f = (\(a, b) -> (a, f b)) <$> hsplit <$> Create adv
+class CreateAdversarial s c as bs adv b where
+  createAdversarial ::
+       ( HSplit (Interfaces s (as +|+ MaybeMap bs)) (Interfaces s as) (Interfaces s (MaybeMap bs))
+       , InterfaceMap s c (as +|+ MaybeMap bs)
+       )
+    => Adversary s c as bs
+    -> adv
+    -> Action s (HList (Interfaces s as), b)
+
+instance CreateAdversarial s c as bs (WithAdversary s bs b) b where
+  createAdversarial adv (WithAdversary f) = second f . hsplit <$> Create adv
+
+instance CreateAdversarial s c as bs (WithAdversary' s c bs cs) (Functionality s c cs) where
+  createAdversarial adv (WithAdversary' g f) =
+    (\(a, b) -> (a, f (g b))) . hsplit <$> Create adv

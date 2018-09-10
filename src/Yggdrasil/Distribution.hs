@@ -13,7 +13,7 @@ module Yggdrasil.Distribution
   , liftDistribution
   ) where
 
-import           Control.Monad             (ap)
+import           Control.Monad             ((>=>), ap)
 import           Control.Monad.State.Lazy  (State, runState, state)
 import           Control.Monad.Trans.Class (MonadTrans (lift))
 import           Crypto.Random             (SystemDRG, randomBytesGenerate)
@@ -54,8 +54,7 @@ instance Monad m => Applicative (DistributionT m) where
   (<*>) = ap
 
 instance Monad m => Monad (DistributionT m) where
-  a >>= b =
-    DistributionT (\s -> (runDistT a) s >>= (\(a', s') -> (runDistT (b a')) s'))
+  a >>= b = DistributionT $ runDistT a >=> (\(a', s') -> runDistT (b a') s')
 
 instance MonadTrans DistributionT where
   lift m = DistributionT $ \s -> (, s) <$> m

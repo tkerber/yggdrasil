@@ -17,6 +17,7 @@ module Yggdrasil.HList
   , HSplit(hsplit)
   ) where
 
+infixr 5 :::
 data HList :: [*] -> * where
   Nil :: HList '[]
   (:::) :: a -> HList as -> HList (a ': as)
