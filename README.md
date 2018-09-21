@@ -1,5 +1,7 @@
 # Yggdrasil
 
+![Yggdrasil - The Mundane Tree](/phd/yggdrasil/raw/branch/master/yggdrasil.jpg)
+
 Yggdrasil is a UC-based system for modelling security protocols.
 
 ## Not Asked Questions
