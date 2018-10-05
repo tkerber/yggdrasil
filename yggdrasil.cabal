@@ -26,6 +26,7 @@ library
                        Yggdrasil.ExecutionModel
                        Yggdrasil.Functionalities
                        Yggdrasil.HList
+                       Yggdrasil.MetaProtocol
   build-depends:       base >= 4.11 && < 4.12
                      , cryptonite >= 0.25 && < 0.26
                      , memory >= 0.14 && < 0.15
