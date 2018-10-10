@@ -1,14 +1,15 @@
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE ExplicitNamespaces    #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE KindSignatures        #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE ExplicitNamespaces     #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE KindSignatures         #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE PolyKinds              #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeApplications       #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE TypeOperators          #-}
 
 -- | Provides heterogeneous lists through 'HList', as well as some type and
 -- value level operations on them.
@@ -17,9 +18,12 @@ module Yggdrasil.HList
   , type (+|+)
   , HAppend((+++))
   , HSplit(hsplit)
+  , HSequence(hsequence)
+  , Applied
   ) where
 
 infixr 5 :::
+
 -- | A heterogeneous list.
 data HList :: [*] -> * where
   Nil :: HList '[]
@@ -48,4 +52,22 @@ instance HSplit bs '[] bs where
   hsplit bs = (Nil, bs)
 
 instance HSplit hs as bs => HSplit (a ': hs) (a ': as) bs where
-  hsplit (h ::: hs) = let (as, bs) = hsplit @hs @as @bs hs in (h ::: as, bs)
+  hsplit (h ::: hs) =
+    let (as, bs) = hsplit @hs @as @bs hs
+     in (h ::: as, bs)
+
+type family Applied m (as :: [k]) = (ys :: [k]) | ys -> as where
+  Applied m '[] = '[]
+  Applied m (a ': as) = m a ': Applied m as
+
+class HSequence m as where
+  hsequence :: HList (Applied m as) -> m (HList as)
+
+instance Monad m => HSequence m '[] where
+  hsequence Nil = return Nil
+
+instance (Monad m, HSequence m as) => HSequence m (a ': as) where
+  hsequence (a ::: as) = do
+    a' <- a
+    as' <- hsequence @m @as as
+    return (a' ::: as')

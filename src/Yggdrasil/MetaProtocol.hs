@@ -1,18 +1,20 @@
-{-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE KindSignatures        #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE KindSignatures         #-}
+{-# LANGUAGE LambdaCase             #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TypeApplications       #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE TypeOperators          #-}
 
 module Yggdrasil.MetaProtocol
   ( MetaProtocol
-  , Relay
+  , RelayN
   , npartyIdeal
   , npartyReal
   ) where
@@ -23,49 +25,82 @@ import           Yggdrasil.ExecutionModel  (Action (Create),
                                             Functionality (Functionality),
                                             InterfaceMap, Interfaces,
                                             Operations)
-import           Yggdrasil.HList           (HList ((:::), Nil))
+import           Yggdrasil.HList           (HList ((:::), Nil),
+                                            HSequence (hsequence))
+import           Yggdrasil.Nat             (ForEach, ForEach (foreach),
+                                            IdApplied (idApplied), NCopies, Zn)
 
 type MetaProtocol s c c' ops ops'
    = Functionality s c ops -> Functionality s c' ops'
 
-class Relay s (ops :: [(*, *)]) where
-  operations :: (HList (Interfaces s ops)) -> (HList (Operations s () ops))
-  relay :: (HList (Interfaces s ops)) -> Functionality s () ops
-  relay is = Functionality () (operations @s @ops is)
+class RelayN s n (ops :: [(*, *)]) where
+  relayNOperations ::
+       (HList (Interfaces s (WithZn n ops)))
+    -> Zn n
+    -> (HList (Operations s () ops))
+  relayN ::
+       (HList (Interfaces s (WithZn n ops))) -> Zn n -> Functionality s () ops
+  relayN is n = Functionality () (relayNOperations @s @n @ops is n)
 
-instance Relay s '[] where
-  operations _ = Nil
+instance RelayN s n '[] where
+  relayNOperations _ _ = Nil
 
-instance Relay s xs => Relay s ('( a, b) ': xs) where
-  operations (f ::: xs) = lifted ::: operations @s @xs xs
+instance RelayN s n xs => RelayN s n ('( a, b) ': xs) where
+  relayNOperations (f ::: xs) n = lifted ::: relayNOperations @s @n @xs xs n
     where
-      lifted _ a = lift (f a)
+      lifted _ a = lift (f (n, a))
+
+type family WithZn n (ops :: [(*, *)]) = (ys :: [(*, *)]) | ys -> ops where
+  WithZn n '[] = '[]
+  WithZn n ('( a, b) ': xs) = '( (Zn n, a), b) ': WithZn n xs
 
 npartyIdeal ::
-     (InterfaceMap s c ops, InterfaceMap s () ops, Relay s ops)
-  => Integer
-  -> MetaProtocol s c (Maybe [HList (Interfaces s ops)]) ops '[ '( (), [HList (Interfaces s ops)])]
-npartyIdeal n f = Functionality Nothing (mkOp ::: Nil)
+     forall s c n ops.
+     ( ForEach n (Action s (HList (Interfaces s ops)))
+     , IdApplied (Action s) n (HList (Interfaces s ops))
+     , RelayN s n ops
+     , InterfaceMap s c (WithZn n ops)
+     , InterfaceMap s () ops
+     , HSequence (Action s) (NCopies n (HList (Interfaces s ops)))
+     )
+  => MetaProtocol s c
+    (Maybe (HList (NCopies n (HList (Interfaces s ops)))))
+    (WithZn n ops)
+    '[ '( (), HList (NCopies n (HList (Interfaces s ops))))]
+npartyIdeal f = Functionality Nothing (mkOp ::: Nil)
   where
     mkOp _ _ =
       get >>= \case
         Just i -> return i
         Nothing -> do
           f0 <- lift $ Create f
-          is <- (lift . sequence) [Create (relay f0) | _ <- [1 .. n]]
+          is <-
+            (lift .
+             hsequence . idApplied @(Action s) @n @(HList (Interfaces s ops)))
+              (foreach (\i -> Create (relayN @s @n @ops f0 i)))
           put (Just is)
           return is
 
 npartyReal ::
-     (InterfaceMap s c ops)
-  => Integer
-  -> MetaProtocol s c (Maybe [HList (Interfaces s ops)]) ops '[ '( (), [HList (Interfaces s ops)])]
-npartyReal n f = Functionality Nothing (mkOp ::: Nil)
+     forall s c n ops.
+     ( ForEach n (Action s (HList (Interfaces s ops)))
+     , IdApplied (Action s) n (HList (Interfaces s ops))
+     , InterfaceMap s c ops
+     , HSequence (Action s) (NCopies n (HList (Interfaces s ops)))
+     )
+  => MetaProtocol s c
+    (Maybe (HList (NCopies n (HList (Interfaces s ops)))))
+    ops
+    '[ '( (), HList (NCopies n (HList (Interfaces s ops))))]
+npartyReal f = Functionality Nothing (mkOp ::: Nil)
   where
     mkOp _ _ =
       get >>= \case
         Just i -> return i
         Nothing -> do
-          is <- (lift . sequence) [Create f | _ <- [1 .. n]]
+          is <-
+            (lift .
+             hsequence . idApplied @(Action s) @n @(HList (Interfaces s ops)))
+              (foreach (\_ -> Create f))
           put (Just is)
           return is
