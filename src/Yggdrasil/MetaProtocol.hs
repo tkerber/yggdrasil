@@ -7,6 +7,7 @@
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TupleSections          #-}
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
@@ -46,9 +47,7 @@ instance RelayN s n '[] where
   relayNOperations _ _ = Nil
 
 instance RelayN s n xs => RelayN s n ('( a, b) ': xs) where
-  relayNOperations (f ::: xs) n = lifted ::: relayNOperations @s @n @xs xs n
-    where
-      lifted _ a = lift (f (n, a))
+  relayNOperations (f ::: xs) n = lift . f . (n, ) ::: relayNOperations @s @n @xs xs n
 
 type family WithZn n (ops :: [(*, *)]) = (ys :: [(*, *)]) | ys -> ops where
   WithZn n '[] = '[]
@@ -69,7 +68,7 @@ npartyIdeal ::
     '[ '( (), HList (NCopies n (HList (Interfaces s ops))))]
 npartyIdeal f = Functionality Nothing (mkOp ::: Nil)
   where
-    mkOp _ _ =
+    mkOp _ =
       get >>= \case
         Just i -> return i
         Nothing -> do
@@ -94,7 +93,7 @@ npartyReal ::
     '[ '( (), HList (NCopies n (HList (Interfaces s ops))))]
 npartyReal f = Functionality Nothing (mkOp ::: Nil)
   where
-    mkOp _ _ =
+    mkOp _ =
       get >>= \case
         Just i -> return i
         Nothing -> do
