@@ -21,12 +21,12 @@ import           Yggdrasil.Distribution    (Distribution)
 import           Yggdrasil.ExecutionModel  (Action (Sample),
                                             ForceSample (forceSample),
                                             Functionality (Functionality),
-                                            Interfaces, Operation, Operations,
-                                            Ref)
+                                            Interfaces, Operation, Operations)
 import           Yggdrasil.HList           (HList ((:::), Nil))
+import Yggdrasil.Nat (Zn)
 
 crsOp :: Distribution b -> Operation s (Maybe b) () b
-crsOp d _ () =
+crsOp d () =
   get >>= \case
     Just x -> return x
     Nothing -> do
@@ -49,7 +49,7 @@ roLookup x' ((x, y):_)
 roLookup x (_:xs) = roLookup x xs
 
 roOp :: Eq a => Distribution b -> Operation s (ROState a b) a b
-roOp d _ x =
+roOp d x =
   (roLookup x <$> get) >>= \case
     Just y -> return y
     Nothing -> do
@@ -64,45 +64,45 @@ randomOracle d = Functionality [] (roOp d ::: Nil)
 
 -- | The state of a 'signature' functionality. Consists of previously recorded
 -- signatures, and their corresponding messages and signers.
-type SigState s msg sig = [(msg, sig, Ref s)]
+type SigState s n msg sig = [(Zn n, (msg, sig))]
 
 verifyOp ::
-     (Eq msg, Eq sig) => Operation s (SigState s msg sig) (msg, sig, Ref s) Bool
-verifyOp _ s = (s `elem`) <$> get
+     (Eq msg, Eq sig) => Operation s (SigState s n msg sig) (Zn n, (msg, sig)) Bool
+verifyOp s = (s `elem`) <$> get
 
 fixAdv ::
      (Eq msg, Eq sig, ForceSample sig)
-  => HList (Interfaces s '[ '( (msg, Ref s), Maybe sig)])
-  -> HList (Operations s (SigState s msg sig) '[ '( (msg, Ref s), sig)])
+  => HList (Interfaces s '[ '( (Zn n, msg), Maybe sig)])
+  -> HList (Operations s (SigState s n msg sig) '[ '( (Zn n, msg), sig)])
 fixAdv (sign ::: Nil) = sign' ::: Nil
   where
-    sign' _ (msg, ref) = do
+    sign' (p, msg) = do
       sig <-
-        lift (sign (msg, ref)) >>= \case
+        lift (sign (p, msg)) >>= \case
           Just s -> do
             st <- get
-            if (msg, s, ref) `elem` st
-              then forceSample' msg ref
+            if (p, (msg, s)) `elem` st
+              then forceSample' msg p
               else return s
-          Nothing -> forceSample' msg ref
-      modify ((msg, sig, ref) :)
+          Nothing -> forceSample' msg p
+      modify ((p, (msg, sig)) :)
       return sig
-    forceSample' msg ref = do
+    forceSample' msg p = do
       sig <- lift forceSample
       st <- get
       -- This may recursive infinitely iff the signature space is too small!
       -- This is a feature, not a bug.
-      if (msg, sig, ref) `elem` st
-        then forceSample' msg ref
+      if (p, (msg, sig)) `elem` st
+        then forceSample' msg p
         else return sig
 
 -- | A robust signature functionality.
 signature ::
      (Eq msg, Eq sig, ForceSample sig)
-  => WithAdversary' s (SigState s msg sig)
-    '[ '( (msg, Ref s), sig)]
-    '[ '( (msg, Ref s), sig)
-     , '( (msg, sig, Ref s), Bool)
+  => WithAdversary' s (SigState s n msg sig)
+    '[ '( (Zn n, msg), sig)]
+    '[ '( (Zn n, msg), sig)
+     , '( (Zn n, (msg, sig)), Bool)
      ]
 signature =
   WithAdversary'

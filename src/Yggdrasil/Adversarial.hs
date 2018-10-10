@@ -25,7 +25,6 @@ module Yggdrasil.Adversarial
   , WithAdversary
   , WithAdversary'(..)
   , NoAdversary(..)
-  , DummyInterfaces
   , DummyAdversary(..)
   , CreateAdversarial(..)
   ) where
@@ -35,7 +34,7 @@ import           Control.Monad.Trans.Class (lift)
 import           Yggdrasil.ExecutionModel  (Action (Create),
                                             Functionality (Functionality),
                                             InterfaceMap, Interfaces, Operation,
-                                            Operations, Ref)
+                                            Operations)
 import           Yggdrasil.HList           (type (+|+), HList ((:::), Nil),
                                             HSplit (hsplit))
 
@@ -71,21 +70,15 @@ instance NoAdversary s '[] where
   nullOperations = Nil
 
 instance NoAdversary s xs => NoAdversary s ('( a, b) ': xs) where
-  nullOperations = (\_ _ -> return Nothing) ::: nullOperations @s @xs
-
--- | Closely corresponding to 'Interfaces', but also receiving a reference to
--- the original sender.
-type family DummyInterfaces s (xs :: [(*, *)]) = (ys :: [*]) | ys -> xs where
-  DummyInterfaces s '[] = '[]
-  DummyInterfaces s ('( a, b) ': xs) = (Ref s -> a -> Action s b) ': DummyInterfaces s xs
+  nullOperations = (\_ -> return Nothing) ::: nullOperations @s @xs
 
 -- | A dummy adversary executes the interfaces the environments hands it.
 class DummyAdversary s (bs :: [(*, *)]) where
   operations ::
-       HList (DummyInterfaces s (MaybeMap bs))
+       HList (Interfaces s (MaybeMap bs))
     -> HList (Operations s () (MaybeMap bs))
   dummyAdversary ::
-       HList (DummyInterfaces s (MaybeMap bs)) -> Adversary s () '[] bs
+       HList (Interfaces s (MaybeMap bs)) -> Adversary s () '[] bs
   dummyAdversary = Functionality () . operations @s @bs
 
 instance DummyAdversary s '[] where
@@ -93,7 +86,7 @@ instance DummyAdversary s '[] where
 
 instance DummyAdversary s bs => DummyAdversary s ('( a, b) ': bs) where
   operations (b ::: bs) =
-    ((\ref x -> lift $ b ref x) :: Operation s () a (Maybe b)) :::
+    (lift . b :: Operation s () a (Maybe b)) :::
     operations @s @bs bs
 
 -- | Creates an adversarial functionality given a suitable adversary.
