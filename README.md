@@ -6,14 +6,12 @@ Yggdrasil is a UC-based system for modelling security protocols.
 
 ## Not Asked Questions
 
-Q: Why Haskell?
+Q: Why Idris?
 
-A: In an environment where things behave adversarially, having a very powerful
-type system is useful to reason about what things *can* do. Further, pure,
-functional languages allow restricting the communication between components
-that should not communicate, and lend themselves more easily to formal
-reasoning. Eventually the goal is to formally prove statements about execution
-as well, but we are a long way off.
+A: Idris is both a dependently-typed programming language, and a theorem
+prover, which comes with the territory of powerful type systems. The highly
+generic type system allows yggdrasil to reason and prove statements about
+highly generic protocols.
 
 Q: Why AGPL?
 
