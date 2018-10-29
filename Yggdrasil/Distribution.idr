@@ -1,51 +1,71 @@
 module Yggdrasil.Distribution
 
 import Control.Monad.Identity
-import Yggdrasil.Zn
+import Data.Fin
+import Data.QQ.SternBrocot
+import Data.ZZ
+import Yggdrasil.Extensible
 
-public export
 interface Sampler s where
-  sampleZn : {n : Nat} -> s -> (Zn (S n), s)
+  sample : {n : Nat} -> s -> (Fin (S n), s)
 
-export
-data DistributionT : (Type -> Type) -> Type -> Type where
-  MkDistributionT : {a : Type} ->
-                    ({s : Type} -> Sampler s => s -> m (Pair a s)) ->
-                    DistributionT m a
+data D : Type -> Type where
+  ||| A value is a distribution.
+  PureD : a -> D a
+  ||| Sample from Fin, where n >= 2
+  SampleD : {n : Nat} -> D (Fin (S (S n)))
+  ||| Allow sampling depending on the value of a previous sample.
+  BindD : D a -> (a -> D b) -> D b
 
-export
-Distribution : Type -> Type
-Distribution = DistributionT Identity
+Functor D where
+  map f x = BindD x (PureD . f)
 
-Functor f => Functor (DistributionT f) where
-  map g (MkDistributionT d) = MkDistributionT
-    (\s => map (\(a, s) => (g a, s)) (d s))
+Applicative D where
+  pure = PureD
+  f <*> x = BindD f (\f' => BindD x (\x' => PureD (f' x')))
 
--- We actually need a Monad here already. Rationale: Since we need the same
--- sampler for `f` and `x`, and we don't want reuse, we need the `bind` to
--- reduce the two-layered applicative to one.
-Monad m => Applicative (DistributionT m) where
-  pure x = MkDistributionT (\s => pure (x, s))
-  (MkDistributionT fa) <*> (MkDistributionT xa) = MkDistributionT (\s => do
-    (f, s') <- fa s
-    (x, s'') <- xa s'
-    pure (f x, s''))
+Monad D where
+  (>>=) = BindD
 
-Monad m => Monad (DistributionT m) where
-  (MkDistributionT a) >>= b = MkDistributionT (\s =>
-    a s >>= (\(a', s') => let (MkDistributionT b') = (b a') in b' s'))
+allFin : (n : Nat) -> List (Fin n)
+allFin Z = []
+allFin (S n) = FZ :: map FS (allFin n)
 
-export
-coin : Distribution Bool
-coin = map toBool $ MkDistributionT (Id . sampleZn)
+Num QQ where
+  a + b = ?add_qq
+  a * b = ?mult_qq
+  fromInteger i = ?fromInt_qq
 
-distZn : {n : Nat} -> Distribution (Zn (S n))
-distZn = MkDistributionT (Id . sampleZn)
+Neg QQ where
+  negate q = ?negate_qq
+  a - b = ?subtract_qq
 
-export
-liftDistribution : Monad m => Distribution b -> DistributionT m b
-liftDistribution (MkDistributionT d) = MkDistributionT $ pure . runIdentity . d
+data Event : (a -> Bool) -> D a -> QQ -> Type where
+  ||| If `f x` is true, it's pure distribution has probability 1.
+  PureT : f a = True -> Event f (PureD a) (1 # 1)
+  ||| If `f x` is false, it's pure distribution has probability 0.
+  PureF : f a = False -> Event f (PureD a) (0 # 1)
+  ||| If we know the number of samples where `f x` is true, 
+  NFin : length (filter f (allFin (S (S n)))) = m ->
+         Event f (SampleD {n=n}) (Pos m # S (S n))
+  CondBind : (f x = True -> Event g (bnd x) p1) ->
+             (f x = False -> Event g (bnd x) p2) ->
+             Event f d p3 ->
+             Event g (BindD d bnd) (p3 * p1 + (1 - p3) * p2)
 
-export
-uniform : (l : List a) -> {auto ok : NonEmpty l} -> Distribution a
-uniform (x::xs) = map (indexZn (x::xs)) (distZn {n=length xs})
+data DualEvent : {d1 : D a} -> {d2 : D a} ->
+                 (f : (a -> Bool)) ->
+                 (p : QQ) ->
+                 Event f d1 p ->
+                 Event f d2 p ->
+                 Type where
+  MkDual : (f : a -> Bool) ->
+           (p : QQ) ->
+           (e1 : Event f d1 p) ->
+           (e2 : Event f d2 p) ->
+           DualEvent f p e1 e2
+
+infixr 5 $=
+
+data ($=) : D a -> D a -> Type where
+  EEq : Eq a => ((x : a) -> DualEvent {d1=d1} {d2=d2} f p e1 e2) -> d1 $= d2

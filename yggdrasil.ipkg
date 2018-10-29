@@ -1,0 +1,11 @@
+package yggdrasil
+
+version = "0.0"
+readme = README.md
+license = "AGPLv3"
+author = "Thomas Kerber <tk@drwx.org>"
+sourceloc = https://git.drwx.org/phd/yggdrasil.git
+modules = Yggdrasil.ExecutionModel
+        , Yggdrasil.Distribution
+        , Yggdrasil.Extensible
+pkgs = base, effects, contrib, rationals

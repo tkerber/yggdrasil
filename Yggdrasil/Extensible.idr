@@ -2,6 +2,7 @@ import Prelude.Cast
 
 infixr 5 ^=
 
+export
 data (^=) : a -> b -> Type where
   Refl : x ^= x
   Extend : {a : Type} -> {b : Type} -> (f : a -> b) -> (g : a -> b) -> ((x : a) -> f x ^= g x) -> f ^= g
