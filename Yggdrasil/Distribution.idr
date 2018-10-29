@@ -113,3 +113,6 @@ infixr 5 $=
 
 data ($=) : D a -> D a -> Type where
   EEq : Eq a => ((x : a) -> DualEvent {d1=d1} {d2=d2} f p e1 e2) -> d1 $= d2
+
+negligible : Nat -> QQ
+negligible n = Pos (replicate n L)
