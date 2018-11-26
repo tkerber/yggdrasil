@@ -5,7 +5,7 @@ open import Data.Empty using (⊥-elim)
 open import Data.List using (List; _∷_; []; map)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_×_; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
+open import Data.Product using (_×_; Σ; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Level using (Level) renaming (suc to lsuc)
@@ -42,6 +42,9 @@ record Call (ℓ : Level) (N : Node ℓ) : Set (lsuc ℓ) where
     A : Set ℓ
     B : A → Set ℓ
     δ : (state N) → (x : A) → (state N) × Action↑ N (B x)
+
+weaken : ∀ {ℓ N} → Call ℓ N → Query ℓ
+weaken c = record { A = Call.A c; B = Call.B c }
 
 record WorldType ℓ where
   inductive
@@ -83,6 +86,9 @@ data WorldStates {ℓ} where
 
 data WorldState {ℓ} Γ where
   stnode : state (node Γ) → WorldStates (chld (node Γ)) → WorldState Γ
+
+World : (ℓ : Level) → Set (lsuc ℓ)
+World ℓ = Σ (WorldType ℓ) WorldState
 
 data _∈↑_ {ℓ : Level} (q : Query ℓ) (Γ : WorldType ℓ) : Set (lsuc ℓ) where
   path : ∀ {Γ′} → Γ′ ⊑ Γ → q ∈ qry (node Γ′) → q ∈↑ Γ
