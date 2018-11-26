@@ -1,12 +1,13 @@
 module Yggdrasil.World where
 
 open import Data.Bool using (Bool)
+open import Data.Empty using (⊥-elim)
 open import Data.List using (List; _∷_; []; map)
 open import Data.Maybe using (Maybe; nothing; just)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_×_) renaming (_,_ to ⟨_,_⟩)
+open import Data.Product using (_×_; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Level using (Level) renaming (suc to lsuc)
 open import Yggdrasil.List using (_∈_; here; there)
 
@@ -55,11 +56,12 @@ data _⊑_ {ℓ : Level} : (Γ₁ Γ₂ : WorldType ℓ) → Set (lsuc ℓ) wher
   here : ∀ {Γ} → Γ ⊑ Γ
   there : ∀ {Γ₁ Γ₂ Γ₃} → Γ₂ ∈ chld (node Γ₃) → Γ₁ ⊑ Γ₂ → Γ₁ ⊑ Γ₃
 
--- ⊑-extract-right : ∀ {Γ₁ Γ₂} → Γ₁ ⊑ Γ₂ → Γ₁ ≢ Γ₂ → ∃[ Γ₃ ] 
+⊑-trans : ∀ {ℓ} {Γ₁ Γ₂ Γ₃ : WorldType ℓ} → Γ₁ ⊑ Γ₂ → Γ₂ ⊑ Γ₃ → Γ₁ ⊑ Γ₃
+⊑-trans ⊑Γ here = ⊑Γ
+⊑-trans ⊑Γ (there Γ′∈ ⊑Γ′) = there Γ′∈ (⊑-trans ⊑Γ ⊑Γ′)
 
 ⊑-right : ∀ {ℓ} {Γ₁ Γ₂ Γ₃ : WorldType ℓ} → Γ₂ ⊑ Γ₃ → Γ₁ ∈ chld (node Γ₂) → Γ₁ ⊑ Γ₃
-⊑-right here ∈Γ = there ∈Γ here
-⊑-right (there Γ′∈ ⊑Γ′) ∈Γ = ?
+⊑-right Γ⊑ ∈Γ = ⊑-trans (there ∈Γ here) Γ⊑
 
 data Action↯ {ℓ} Γ where
   call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ → (x : Call.A f) →
@@ -121,13 +123,6 @@ exec↓ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↓ Γ₂ A → Wor
 exec↑ : ∀ {ℓ Γ₁ Γ₂ N A} → Oracle Γ₁ → Action↑ N A → WorldState {ℓ} Γ₁ →
   Γ₂ ⊑ Γ₁ → N ≡ node Γ₂ → ℕ → Maybe (A × WorldState {ℓ} Γ₁)
 
-
---    root : Set ℓ
---    chld : List (WorldType ℓ)
---    qry  : List (Query ℓ)
---    adv  : List (Call ℓ root chld qry)
---    hon  : List (Call ℓ root chld qry)
-
 exec (strat (inj₁ α) O) Σ g = exec↯ O α Σ g
 exec (strat (inj₂ α) O) Σ g = exec↓ O α Σ here g
 
@@ -144,9 +139,6 @@ exec↓ O (call↓ {f = f} f∈ x) Σ ⊑Γ (suc g) = let
     ⟨ σ′ , α ⟩ = Call.δ f σ x
     Σ′ = set ⊑Γ Σ σ′
   in exec↑ O α Σ′ ⊑Γ refl g
-
---Oracle Γ = ∀ {q} → q ∈↑ Γ → (x : Query.A q) → Action Γ (Query.B q x)
---path : ∀ {Γ′} → Γ′ ⊑ Γ → q ∈ qry (node Γ′) → q ∈↑ Γ
 
 -- NOTE: Gas is only used for termination here, it is NOT a computational model.
 exec↑ _ _ _ _ _ zero = nothing
