@@ -38,6 +38,7 @@ open Node
 
 record Call (ℓ : Level) (N : Node ℓ) : Set (lsuc ℓ) where
   inductive
+  constructor call
   field
     A : Set ℓ
     B : A → Set ℓ
