@@ -3,12 +3,13 @@ module Yggdrasil.World where
 open import Data.Bool using (Bool)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; _∷_; []; map)
-open import Data.Maybe using (Maybe; nothing; just)
+open import Data.Maybe using (Maybe; nothing; just) renaming (map to mmap)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (_×_; Σ; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
+open import Data.Product using (_×_; Σ; ∃; ∃-syntax; proj₁) renaming (_,_ to ⟨_,_⟩)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
-open import Level using (Level) renaming (suc to lsuc; lift to llift)
+open import Level using (Level; Lift) renaming (suc to lsuc; lift to llift)
 open import Yggdrasil.Probability using (Dist; pure; _>>=_; lift)
 open import Yggdrasil.List using (_∈_; here; there)
 
@@ -133,6 +134,8 @@ set (there Γ′∈ ⊑Γ) (stnode Σ Σs) Σ′ = stnode Σ (set′ Γ′∈ �
     set′ here ⊑Γ (Σ ∷ Σs) Σ′ = set ⊑Γ Σ Σ′ ∷ Σs
     set′ (there Γ∈) ⊑Γ (Σ ∷ Σs) Σ′ = Σ ∷ set′ Γ∈ ⊑Γ Σs Σ′
 
+⌊exec⌋ : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
+  Dist (Maybe (Lift (lsuc ℓ) A))
 exec : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
   Dist (Maybe (A × WorldState {ℓ} Γ))
 exec′ : ∀ {ℓ Γ A} → Oracle Γ → Action Γ A → WorldState {ℓ} Γ → ℕ →
@@ -145,6 +148,7 @@ exec↑ : ∀ {ℓ Γ₁ Γ₂ N A} → Oracle Γ₁ → Action↑ N A → World
   Γ₂ ⊑ Γ₁ → N ≡ node Γ₂ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
 
 -- NOTE: Gas is only used for termination here, it is NOT a computational model.
+⌊exec⌋ str Σ g = (exec str Σ g) >>= (pure ∘ mmap (llift ∘ proj₁))
 exec (strat α O) Σ g = exec′ O α Σ g
 
 exec′ _ _ _ zero = pure nothing

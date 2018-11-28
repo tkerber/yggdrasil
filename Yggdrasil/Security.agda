@@ -1,18 +1,35 @@
 module Yggdrasil.Security where
 
+open import Agda.Builtin.FromNat using (Number)
+import Data.Nat.Literals as ℕLit
+import Data.Rational.Literals as ℚLit
+import Data.Integer.Literals as ℤLit
 open import Data.List using (_∷_; []; map)
 open import Data.Product using (_×_; Σ; Σ-syntax; proj₁; proj₂; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _^_)
+open import Data.Integer using (ℤ)
 open import Data.Maybe using (Maybe) renaming (map to mmap)
 open import Data.Unit using (⊤; tt)
+open import Data.Rational using (ℚ)
 open import Function using (_∘_)
 open import Level using (Level; Lift; lift) renaming (suc to lsuc)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
+open import Relation.Nullary.Decidable using (fromWitnessFalse)
 open import Yggdrasil.List using (_∈_; here; there; with-proof; map≡-implies-∈≡)
-open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; exec; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑)
-open import Yggdrasil.Probability using (Dist; _>>=_; pure)
+open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; ⌊exec⌋; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑; strat)
+open import Yggdrasil.Probability using (Dist; _>>=_; pure; _≈[_]≈_)
+open import Yggdrasil.Rational using (_÷_)
 open WorldType
 open Node
+open Strategy
+
+instance
+  ℕnumber : Number ℕ
+  ℕnumber = ℕLit.number
+  ℤnumber : Number ℤ
+  ℤnumber = ℤLit.number
+  ℚnumber : Number ℚ
+  ℚnumber = ℚLit.number
 
 data Guess {ℓ : Level} : Set ℓ where
   real? ideal? : Guess
@@ -40,94 +57,63 @@ record Simulator {ℓ : Level} (Γᵢ Γᵣ : WorldType ℓ) : Set (lsuc ℓ) wh
 open Simulator
 
 Actionᵢ⇒Actionᵣ : ∀ {ℓ : Level} {Γᵢ Γᵣ : WorldType ℓ} {A : Set ℓ} →
-  Simulator Γᵢ Γᵣ → Oracle Γᵢ → Action Γᵢ A → Action Γᵣ A
+  Simulator Γᵢ Γᵣ → Oracle Γᵢ → ℕ → Action Γᵢ A → Action Γᵣ A
 Action↯⇒Action : ∀ {ℓ : Level} {Γᵢ Γᵣ : WorldType ℓ} {A : Set ℓ} →
-  (S : Simulator Γᵢ Γᵣ) → Oracle Γᵢ → Action↯ Γᵢ Γᵣ {hon-≡ S} A → Action Γᵣ A
+  (S : Simulator Γᵢ Γᵣ) → Oracle Γᵢ → ℕ → Action↯ Γᵢ Γᵣ {hon-≡ S} A → Action Γᵣ A
 
-Actionᵢ⇒Actionᵣ S O ((call↓ ∈Γᵢ x) ↑) with map≡-implies-∈≡ (hon-≡ S) ∈Γᵢ
+Actionᵢ⇒Actionᵣ _ _ zero _ = abort
+Actionᵢ⇒Actionᵣ S O (suc g) ((call↓ ∈Γᵢ x) ↑) with map≡-implies-∈≡ (hon-≡ S) ∈Γᵢ
 ... | ⟨ _ , ⟨ ∈Γᵣ , refl ⟩ ⟩ = call↓ ∈Γᵣ x ↑
-Actionᵢ⇒Actionᵣ _ _ abort = abort
-Actionᵢ⇒Actionᵣ _ _ (dist D) = dist D
-Actionᵢ⇒Actionᵣ S O (call↯ ∈Γ Γ⊑ x) = Action↯⇒Action S O (call↯-map S ∈Γ Γ⊑ x)
-Actionᵢ⇒Actionᵣ S O (α >>= β) = (Actionᵢ⇒Actionᵣ S O α) >>=
-  (Actionᵢ⇒Actionᵣ S O ∘ β)
+Actionᵢ⇒Actionᵣ _ _ _ abort = abort
+Actionᵢ⇒Actionᵣ _ _ _ (dist D) = dist D
+Actionᵢ⇒Actionᵣ S O (suc g) (call↯ ∈Γ Γ⊑ x) = Action↯⇒Action S O g (call↯-map S ∈Γ Γ⊑ x)
+Actionᵢ⇒Actionᵣ S O (suc g) (α >>= β) = (Actionᵢ⇒Actionᵣ S O (suc g) α) >>=
+  (Actionᵢ⇒Actionᵣ S O g ∘ β)
 
--- FIXME: The termination checker (understandably) doesn't like this. Can we
--- delay the recursion to runtime?
-Action↯⇒Action S O (query ∈Γ Γ⊑ x) = {!Actionᵢ⇒Actionᵣ S O (O (path Γ⊑ ∈Γ) x)!}
-Action↯⇒Action _ _ abort = abort
-Action↯⇒Action _ _ (dist D) = dist D
-Action↯⇒Action _ _ (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x
-Action↯⇒Action S O (α >>= β) = (Action↯⇒Action S O α) >>=
-  (Action↯⇒Action S O ∘ β)
+Action↯⇒Action _ _ zero _ = abort
+Action↯⇒Action S O (suc g) (query ∈Γ Γ⊑ x) = Actionᵢ⇒Actionᵣ S O g (O (path Γ⊑ ∈Γ) x)
+Action↯⇒Action _ _ _ abort = abort
+Action↯⇒Action _ _ _ (dist D) = dist D
+Action↯⇒Action _ _ _ (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x
+Action↯⇒Action S O (suc g) (α >>= β) = (Action↯⇒Action S O (suc g) α) >>=
+  (Action↯⇒Action S O g ∘ β)
 
+extract-oracle : ∀ {ℓ Γᵢ Γᵣ} → Simulator {ℓ} Γᵢ Γᵣ → Oracle Γᵢ → ℕ → Oracle Γᵣ
+extract-oracle S O g ∈Γ x = Action↯⇒Action S O g (query-map S ∈Γ x)
+
+simulated-strategy : ∀ {ℓ Γᵢ Γᵣ A} → Simulator {ℓ} Γᵢ Γᵣ → Strategy Γᵢ A → ℕ →
+  Strategy Γᵣ A
+simulated-strategy S str g = strat
+  (Actionᵢ⇒Actionᵣ S (oracle str) g (init str))
+  (extract-oracle S (oracle str) g)
 
 record Challenge {ℓ : Level} : Set (lsuc ℓ) where
   field
-    Γᵣ : WorldType ℓ
     Γᵢ : WorldType ℓ
-    Σᵣ : WorldState Γᵣ
+    Γᵣ : WorldType ℓ
     Σᵢ : WorldState Γᵢ
+    Σᵣ : WorldState Γᵣ
     sim : Simulator Γᵢ Γᵣ
-    --sim   : Σ[ σ ∈ Set ℓ ] (σ × (∀ {c} → σ → c ∈ adv (proj₁ ideal) →
-    --  σ × (Σ (Call ℓ (node (proj₁ real))) (_∈ adv (proj₁ real)))))
- -- strategy : 
 
---exec-ideal : {ℓ : Level} → (c : Challenge {ℓ}) → (s : Strategy (proj₁ (ideal c)))
+record Adv[_]≤_ {ℓ : Level} (c : Challenge {ℓ}) (ε : ℚ) :
+    Set (lsuc (lsuc ℓ)) where
+  field
+    g-exec-min : ℕ
+    g-sim-min : ℕ
+    proof : (g-exec g-sim : ℕ) → g-exec-min ≤ g-exec → g-sim-min ≤ g-sim →
+      (str : Strategy (Challenge.Γᵢ c) Guess) →
+      (⌊exec⌋ str (Challenge.Σᵢ c) g-exec)
+        ≈[ ε ]≈
+      (⌊exec⌋ (simulated-strategy (Challenge.sim c) str g-sim) (Challenge.Σᵣ c)
+        g-exec)
 
---private
---  relevel : {ℓ₁ ℓ₂ : Level} → Guess {ℓ₁} → Guess {ℓ₂}
---  relevel real? = real?
---  relevel ideal? = ideal?
---
---data Outcome : Set where
---  ↯ ✔ : Outcome
---
---record RouterConfig {ℓ : Level} : Set (lsuc ℓ) where
---  field
---    real  : World ℓ
---    ideal : World ℓ
---    sim   : Σ[ σ ∈ Set ℓ ] (σ × (∀ {c} → σ → c ∈ adv (proj₁ ideal) →
---      σ × (Σ (Call ℓ (node (proj₁ real))) (_∈ adv (proj₁ real)))))
---    hon-≡ : map weaken (hon (proj₁ ideal)) ≡ map weaken (hon (proj₁ real))
---
---open RouterConfig
---
---router-world-type : ∀ {ℓ} → RouterConfig {ℓ} → WorldType ℓ
---router-world-type {ℓ} rc = record
---  { node = router-node
---  ; adv = []
---  ; hon = map (λ{c → call (Call.A (proj₁ c)) (Call.B (proj₁ c)) (hon-map′ c)})
---    (with-proof (hon (proj₁ (ideal rc))))
---  }
---  where
---    router-node : Node ℓ
---    router-node = record
---      { state = Σ (Guess {ℓ}) (λ{ ideal? → Lift ℓ ⊤ ; real? → proj₁ (sim rc)})
---      ; chld  = proj₁ (ideal rc) ∷ proj₁ (real rc) ∷ []
---      ; qry   = []
---      } 
---    hon-map′ : (c : Σ (Call ℓ (node (proj₁ (ideal rc)))) (_∈ (hon (proj₁ (ideal rc))))) →
---      state router-node → (x : Call.A (proj₁ c)) →
---      (state router-node) × Action↑ router-node (Call.B (proj₁ c) x)
---    hon-map′ ⟨ call A B δ , ∈ideal ⟩ ⟨ ideal? , lift tt ⟩ x
---      = ⟨ ⟨ ideal? , lift tt ⟩ , call↓ ∈ideal x ↑ here ⟩
---    hon-map′ ⟨ call A B δ , ∈ideal ⟩ ⟨ real? , σ ⟩ x with map≡-implies-∈≡ (hon-≡ rc) ∈ideal
---    ... | ⟨ _ , ⟨ ∈real , refl ⟩ ⟩ = ⟨ ⟨ real? , σ ⟩ , call↓ ∈real x ↑ there here ⟩
---
---router-world-state : ∀ {ℓ} → (rc : RouterConfig {ℓ}) → Guess {ℓ} →
---  WorldState (router-world-type rc)
---router-world-state rc real? = stnode ⟨ real? , proj₁ (proj₂ (sim rc)) ⟩
---  (proj₂ (ideal rc) ∷ proj₂ (real rc) ∷ [])
---router-world-state rc ideal? = stnode ⟨ ideal? , lift tt ⟩
---  (proj₂ (ideal rc) ∷ proj₂ (real rc) ∷ [])
+Perfect : {ℓ : Level} → Challenge {ℓ} → Set (lsuc (lsuc ℓ))
+Perfect c = Adv[ c ]≤ 0
 
---router-strategy : ∀ {ℓ A} → (rc : RouterConfig {ℓ}) →
---  Strategy (proj₁ (ideal rc)) A → Strategy (router-world-type rc) A
---router-strategy = ?
---
---yggdrasil-game : ∀ {ℓ} → (rc : RouterConfig {ℓ}) →
---  Strategy (proj₁ (ideal rc)) Guess → Guess {ℓ} → ℕ → Dist (Maybe (Guess {lsuc ℓ}))
---yggdrasil-game rc str world gas =
---  (exec (router-strategy rc str) (router-world-state rc world) gas) >>=
---  (pure ∘ mmap (relevel ∘ proj₁))
+private
+  ^≢0 : ∀ {n m} → (suc n) ^ m ≢ 0
+  ^≢0 {n} {zero} ()
+  ^≢0 {n} {suc m} ()
+
+Computational : {ℓ : Level} → ℕ → (ℕ → Challenge {ℓ}) → Set (lsuc (lsuc ℓ))
+Computational κ f = Adv[ f κ ]≤ (_÷_ 1 (2 ^ κ) {fromWitnessFalse (^≢0 {1} {κ})})
