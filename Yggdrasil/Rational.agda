@@ -1,13 +1,13 @@
 module Yggdrasil.Rational where
 
 open import Data.Bool using (true; false; T)
-open import Data.Integer using (ℤ; ∣_∣; _◃_; sign; +_) renaming (_+_ to _ℤ+_; _*_ to _ℤ*_)
-open import Data.Nat as ℕ using (ℕ; suc; zero) renaming (_+_ to _ℕ+_; _*_ to _ℕ*_)
+open import Data.Integer as ℤ using (ℤ; +_)
+open import Data.Nat as ℕ using (ℕ; suc; zero)
 open import Data.Nat.GCD using (GCD; gcd)
 open import Data.Nat.Divisibility using (_∣_; divides)
 open import Data.Nat.Coprimality using (coprime?; gcd-coprime)
 open import Data.Product renaming (_,_ to ⟨_,_⟩)
-open import Data.Rational using (ℚ; _÷_)
+open import Data.Rational using (ℚ) renaming (_÷_ to _÷†_)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥)
 open import Data.Sign using (Sign) renaming (+ to s+; - to s-)
@@ -17,32 +17,56 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open ℚ
 
-¬0*¬0≡¬0 : {a b : ℕ} → ¬ (a ≡ 0) → ¬ (b ≡ 0) → ¬ (a ℕ* b ≡ 0)
-¬0*¬0≡¬0 = ?
+infixl 6 _+_ _-_
+infixl 7 _*_ _÷_
 
-¬0≡¬0*¬0 : {a b : ℕ} → ¬ (0 ≡ a ℕ* b) → ¬ (b ≡ 0)
-¬0≡¬0*¬0 = ?
+postulate
+  _÷_ : ℤ → (d : ℕ) → {d≢0 : False (d ℕ.≟ 0)} → ℚ
+
+∣_∣ : ℚ → ℚ
+∣ q ∣ = _÷†_ (+ ℤ.∣ numerator q ∣) (suc (denominator-1 q)) {isCoprime q}
+
+-_ : ℚ → ℚ
+- q = _÷_ (ℤ.- numerator q) (suc (denominator-1 q))
 
 _+_ : ℚ → ℚ → ℚ
-a + b with gcd (suc (denominator-1 a)) (suc (denominator-1 b))
-... | ⟨ c , denom-gcd ⟩ with GCD.commonDivisor denom-gcd
-...   | ⟨ divides d₁ d₁*c≡da , divides d₂ d₂*c≡db ⟩ = let
-        d′ = d₁ ℕ* d₂ ℕ* c
-        n′ = ((numerator a) ℤ* (+ d₂)) ℤ+ ((numerator b) ℤ* (+ d₁))
-        d′≢0 = ?
-      in _÷_ n′ d′
-        {fromWitness (λ{ {i} ⟨ i∣n′ , i∣d′ ⟩ → 
-          -- Coprime because: d₁ coprime d₂, d₁ coprime n₁, d₂ coprime n₂, n₁,
-          -- n₂ coprime c
-          ?})}
-        {?}
-
+a + b = let
+    n-a = numerator a
+    d-a = suc (denominator-1 a)
+    n-b = numerator b
+    d-b = suc (denominator-1 b)
+    n-c = n-a ℤ.* (+ d-b) ℤ.+ n-b ℤ.* (+ d-a)
+    d-c = d-a ℕ.* d-b
+  in n-c ÷ d-c
 
 _*_ : ℚ → ℚ → ℚ
-a * b = ?
+a * b = let
+    n-a = numerator a
+    d-a = suc (denominator-1 a)
+    n-b = numerator b
+    d-b = suc (denominator-1 b)
+    n-c = n-a ℤ.* n-b
+    d-c = d-a ℕ.* d-b
+  in n-c ÷ d-c
 
 _-_ : ℚ → ℚ → ℚ
-a - b = ?
+a - b = a + (- b)
+
+
+--gcd (suc (denominator-1 a)) (suc (denominator-1 b))
+--... | ⟨ c , denom-gcd ⟩ with GCD.commonDivisor denom-gcd
+--...   | ⟨ divides d₁ d₁*c≡da , divides d₂ d₂*c≡db ⟩ = let
+--        d′ = d₁ ℕ* d₂ ℕ* c
+--        n′ = ((numerator a) ℤ* (+ d₂)) ℤ+ ((numerator b) ℤ* (+ d₁))
+--        d′≢0 = ?
+--      in _÷_ n′ d′
+--        {fromWitness (λ{ {i} ⟨ i∣n′ , i∣d′ ⟩ → 
+--          -- Coprime because: d₁ coprime d₂, d₁ coprime n₁, d₂ coprime n₂, n₁,
+--          -- n₂ coprime c
+--          ?})}
+--        {?}
+
+
 
 --data ℚ′ : Set where
 --  _÷′_ : ℤ → (d : ℕ) → {d≢0 : False (d ℕ.≟ 0)} → ℚ′
