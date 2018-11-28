@@ -13,10 +13,11 @@ open import Data.Nat.Properties using (≤-trans; ≤-refl)
 open import Data.List.Properties using (length-filter; length-map)
 open import Data.Product using (_×_; ∃; ∃-syntax; proj₁) renaming (_,_ to ⟨_,_⟩)
 open import Data.Rational using (ℚ) renaming (_≤?_ to _ℚ≤?_; _≤_ to _ℚ≤_)
+open import Function using (_∘_)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Relation.Nullary.Decidable using (True; fromWitness)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
-open import Level using (Level; Lift; lift) renaming (suc to lsuc)
+open import Level using (Level; Lift; lower; _⊔_) renaming (suc to lsuc; lift to llift)
 open import Yggdrasil.List using (_∈_; with-proof)
 import Yggdrasil.Rational as ℚ
 
@@ -46,12 +47,18 @@ length-all-fin zero = refl
 length-all-fin (suc n) = cong suc (trans (length-map suc (all-fin n)) (length-all-fin n))
 
 count : ∀ {ℓ n} {P : PrFin {ℓ} n → Set ℓ} → ((f : PrFin {ℓ} n) → Dec (P f)) → ℕ
-count {n = n} dec = length (filter dec (map lift (all-fin (suc (suc n)))))
+count {n = n} dec = length (filter dec (map llift (all-fin (suc (suc n)))))
 
 data Dist {ℓ : Level} : Set ℓ → Set (lsuc ℓ) where
   pure : ∀ {A : Set ℓ} → A → Dist A
-  sample : ∀ {n : ℕ} → Dist (PrFin n)
-  bind : ∀ {A B : Set ℓ} → Dist A → (A → Dist B) → Dist B
+  sample : ∀ {n : ℕ} → Dist (PrFin {ℓ} n)
+  _>>=_ : ∀ {A B : Set ℓ} → Dist A → (A → Dist B) → Dist B
+
+lift : {ℓ₁ ℓ₂ : Level} {A : Set ℓ₁} → Dist A → Dist (Lift ℓ₂ A)
+lift (pure x) = pure (llift x)
+lift {ℓ₁} {ℓ₂} (sample {n = n}) = sample {n = n} >>=
+  (pure ∘ llift ∘ llift ∘ lower)
+lift {ℓ₂ = ℓ} (D >>= f) = lift {ℓ₂ = ℓ} D >>= (lift ∘ f ∘ lower)
 
 ≡⇒≤ : {a b : ℕ} → a ≡ b → a ℕ≤ b
 ≡⇒≤ refl = ≤-refl
@@ -70,7 +77,7 @@ data Pr[_[_]]≡_ {ℓ : Level} : {A : Set ℓ} → (P : A → Set ℓ) → Dist
     Pr[ P₁ [ D ]]≡ p₁ → 
     ((x : A) → P₁ x → Pr[ P₂ [ f x ]]≡ p₂) →
     ((x : A) → ¬ (P₁ x) → Pr[ P₂ [ f x ]]≡ p₃) → 
-    Pr[ P₂ [ bind D f ]]≡ (case p₁ p₂ p₃)
+    Pr[ P₂ [ D >>= f ]]≡ (case p₁ p₂ p₃)
 
 record _≈[_]≈_ {ℓ : Level} {A : Set ℓ} (d₁ : Dist A) (ε : ℚ) (d₂ : Dist A) : Set (lsuc ℓ) where
   field

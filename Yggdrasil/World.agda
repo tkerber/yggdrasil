@@ -8,7 +8,8 @@ open import Data.Nat using (ℕ; zero; suc)
 open import Data.Product using (_×_; Σ; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
-open import Level using (Level) renaming (suc to lsuc)
+open import Level using (Level) renaming (suc to lsuc; lift to llift)
+open import Yggdrasil.Probability using (Dist; pure; _>>=_; lift)
 open import Yggdrasil.List using (_∈_; here; there)
 
 record Query (ℓ : Level) : Set (lsuc ℓ) where
@@ -18,11 +19,10 @@ record Query (ℓ : Level) : Set (lsuc ℓ) where
 
 record Node (ℓ : Level) : Set (lsuc ℓ)
 record WorldType (ℓ : Level) : Set (lsuc ℓ)
-data Action↯ {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
+--data Action↯ {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
 data Action↑ {ℓ : Level} (N : Node ℓ) : Set ℓ → Set (lsuc ℓ)
 data Action↓ {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
-Action : {ℓ : Level} → WorldType ℓ → Set ℓ → Set (lsuc ℓ)
-Action Γ A = Action↯ Γ A ⊎ Action↓ Γ A
+data Action {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
 
 data WorldState {ℓ : Level} (Γ : WorldType ℓ) : Set (lsuc ℓ)
 data WorldStates {ℓ : Level} : List (WorldType ℓ) → Set (lsuc ℓ)
@@ -67,16 +67,28 @@ data _⊑_ {ℓ : Level} : (Γ₁ Γ₂ : WorldType ℓ) → Set (lsuc ℓ) wher
 ⊑-right : ∀ {ℓ} {Γ₁ Γ₂ Γ₃ : WorldType ℓ} → Γ₂ ⊑ Γ₃ → Γ₁ ∈ chld (node Γ₂) → Γ₁ ⊑ Γ₃
 ⊑-right Γ⊑ ∈Γ = ⊑-trans (there ∈Γ here) Γ⊑
 
-data Action↯ {ℓ} Γ where
+data Action {ℓ} Γ where
+  _↑ : ∀ {A} → Action↓ {ℓ} Γ A → Action {ℓ} Γ A
+  abort : ∀ {A} → Action Γ A
+  dist  : ∀ {A} → Dist A → Action Γ A
   call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ → (x : Call.A f) →
-    Action↯ Γ (Call.B f x)
+    Action Γ (Call.B f x)
+  _>>=_ : ∀ {A B} → Action Γ A → (A → Action Γ B) → Action Γ B
+
+--A = Action↯ Γ A ⊎ Action↓ Γ A
+--data Action↯ {ℓ} Γ where
+--  abort : ∀ {A} → Action↯ Γ A
+--  dist  : ∀ {A} → Dist A → Action↯ Γ A
+--  call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ → (x : Call.A f) →
+--    Action↯ Γ (Call.B f x)
+--  _>>=_ : ∀ {A B} → Action↯ Γ A → (A → Action↯ Γ B) → Action↯ Γ B
 
 data Action↓ {ℓ} Γ where
   call↓ : ∀ {f} → f ∈ (hon Γ) → (x : Call.A f) → Action↓ Γ (Call.B f x)
 
 data Action↑ {ℓ} N where
   abort : ∀ {A} → Action↑ N A
-  pure  : ∀ {A} → A → Action↑ N A
+  dist  : ∀ {A} → Dist A → Action↑ N A
   query : ∀ {q} → q ∈ qry N → (x : Query.A q) → Action↑ N (Query.B q x)
   _↑_   : ∀ {Γ A} → Action↓ Γ A → Γ ∈ chld N → Action↑ N A
   _>>=_ : ∀ {A B} → Action↑ N A → (A → Action↑ N B) → Action↑ N B
@@ -122,38 +134,59 @@ set (there Γ′∈ ⊑Γ) (stnode Σ Σs) Σ′ = stnode Σ (set′ Γ′∈ �
     set′ (there Γ∈) ⊑Γ (Σ ∷ Σs) Σ′ = Σ ∷ set′ Γ∈ ⊑Γ Σs Σ′
 
 exec : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
-  Maybe (A × WorldState {ℓ} Γ)
-exec↯ : ∀ {ℓ Γ A} → Oracle Γ → Action↯ Γ A → WorldState {ℓ} Γ → ℕ →
-  Maybe (A × WorldState {ℓ} Γ)
+  Dist (Maybe (A × WorldState {ℓ} Γ))
+exec′ : ∀ {ℓ Γ A} → Oracle Γ → Action Γ A → WorldState {ℓ} Γ → ℕ →
+  Dist (Maybe (A × WorldState {ℓ} Γ))
+--exec↯ : ∀ {ℓ Γ A} → Oracle Γ → Action↯ Γ A → WorldState {ℓ} Γ → ℕ →
+--  Dist (Maybe (A × WorldState {ℓ} Γ))
 exec↓ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↓ Γ₂ A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → ℕ → Maybe (A × WorldState {ℓ} Γ₁)
+  Γ₂ ⊑ Γ₁ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
 exec↑ : ∀ {ℓ Γ₁ Γ₂ N A} → Oracle Γ₁ → Action↑ N A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → N ≡ node Γ₂ → ℕ → Maybe (A × WorldState {ℓ} Γ₁)
+  Γ₂ ⊑ Γ₁ → N ≡ node Γ₂ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
 
-exec (strat (inj₁ α) O) Σ g = exec↯ O α Σ g
-exec (strat (inj₂ α) O) Σ g = exec↓ O α Σ here g
+-- NOTE: Gas is only used for termination here, it is NOT a computational model.
+exec (strat α O) Σ g = exec′ O α Σ g
 
-exec↯ _ _ _ zero = nothing
-exec↯ O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = let
+exec′ _ _ _ zero = pure nothing
+exec′ O (α ↑) Σ g = exec↓ O α Σ here g
+exec′ _ abort _ _ = pure nothing
+exec′ O (dist D) Σ (suc g) = lift D >>= λ{ (llift x) → pure (just ⟨ x , Σ ⟩ ) }
+exec′ O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = let
     σ = get ⊑Γ Σ
     ⟨ σ′ , α ⟩ = Call.δ f σ x
     Σ′ = set ⊑Γ Σ σ′
   in exec↑ O α Σ′ ⊑Γ refl g
+-- exec′ O (α ↯) Σ g = exec↯ O α Σ g
+exec′ O (α >>= β) Σ (suc g) = (exec′ O α Σ (suc g)) >>= λ{
+  (just ⟨ x , Σ′ ⟩) → exec′ O (β x) Σ′ g;
+  nothing           → pure nothing }
 
-exec↓ _ _ _ _ zero = nothing
+-- exec↯ _ _ _ zero = pure nothing
+-- exec↯ _ abort _ _ = pure nothing
+-- exec↯ O (dist D) Σ (suc g) = lift D >>= λ{ (llift x) → pure (just ⟨ x , Σ ⟩ ) }
+-- exec↯ O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = let
+--     σ = get ⊑Γ Σ
+--     ⟨ σ′ , α ⟩ = Call.δ f σ x
+--     Σ′ = set ⊑Γ Σ σ′
+--   in exec↑ O α Σ′ ⊑Γ refl g
+-- exec↯ O (α >>= β) Σ (suc g) = (exec↯ O α Σ (suc g)) >>= λ{
+--   (just ⟨ x , Σ′ ⟩) → exec↯ O (β x) Σ′ g;
+--   nothing           → pure nothing }
+
+exec↓ _ _ _ _ zero = pure nothing
 exec↓ O (call↓ {f = f} f∈ x) Σ ⊑Γ (suc g) = let
     σ = get ⊑Γ Σ
     ⟨ σ′ , α ⟩ = Call.δ f σ x
     Σ′ = set ⊑Γ Σ σ′
   in exec↑ O α Σ′ ⊑Γ refl g
 
--- NOTE: Gas is only used for termination here, it is NOT a computational model.
-exec↑ _ _ _ _ _ zero = nothing
-exec↑ O abort Σ ⊑Γ N≡ (suc g) = nothing
-exec↑ O (pure x) Σ ⊑Γ N≡ (suc g) = just ⟨ x , Σ ⟩
+exec↑ _ _ _ _ _ zero = pure nothing
+exec↑ O abort Σ ⊑Γ N≡ (suc g) = pure nothing
+exec↑ O (dist D) Σ ⊑Γ N≡ (suc g) = lift D >>=
+  λ{ (llift x) → pure (just ⟨ x , Σ ⟩) }
 exec↑ O (query {q = q} q∈ x) Σ ⊑Γ refl (suc g) =
-  exec (strat (O (path ⊑Γ q∈) x) O) Σ g
+  exec′ O (O (path ⊑Γ q∈) x) Σ g
 exec↑ O (α ↑ Γ′∈) Σ ⊑Γ refl (suc g) = exec↓ O α Σ (⊑-right ⊑Γ Γ′∈) g
-exec↑ O (α >>= β) Σ ⊑Γ N≡ (suc g) with exec↑ O α Σ ⊑Γ N≡ (suc g)
-... | just ⟨ x , Σ′ ⟩ = exec↑ O (β x) Σ′ ⊑Γ N≡ g
-... | nothing         = nothing
+exec↑ O (α >>= β) Σ ⊑Γ N≡ (suc g) = (exec↑ O α Σ ⊑Γ N≡ (suc g)) >>= λ{
+  (just ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ N≡ g;
+  nothing           → pure nothing }
