@@ -6,14 +6,14 @@ import Data.Rational.Literals as ℚLit
 import Data.Integer.Literals as ℤLit
 open import Data.List using (_∷_; []; map)
 open import Data.Product using (_×_; Σ; Σ-syntax; proj₁; proj₂; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
-open import Data.Nat using (ℕ; zero; suc; _≤_; _^_)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _^_; _+_)
 open import Data.Integer using (ℤ)
 open import Data.Maybe using (Maybe) renaming (map to mmap)
 open import Data.Unit using (⊤; tt)
 open import Data.Rational using (ℚ)
 open import Function using (_∘_)
 open import Level using (Level; Lift; lift) renaming (suc to lsuc)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
 open import Relation.Nullary.Decidable using (fromWitnessFalse)
 open import Yggdrasil.List using (_∈_; here; there; with-proof; map≡-implies-∈≡)
 open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; ⌊exec⌋; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑; strat)
@@ -111,9 +111,13 @@ Perfect : {ℓ : Level} → Challenge {ℓ} → Set (lsuc (lsuc ℓ))
 Perfect c = Adv[ c ]≤ 0
 
 private
+  +-≡0ˡ : ∀ {n m} → n + m ≡ 0 → n ≡ 0
+  +-≡0ˡ {zero} _ = refl
+  +-≡0ˡ {suc n} ()
+
   ^≢0 : ∀ {n m} → (suc n) ^ m ≢ 0
   ^≢0 {n} {zero} ()
-  ^≢0 {n} {suc m} ()
+  ^≢0 {n} {suc m} n^sm≡0 = ^≢0 {n} {m} (+-≡0ˡ n^sm≡0)
 
 Computational : {ℓ : Level} → ℕ → (ℕ → Challenge {ℓ}) → Set (lsuc (lsuc ℓ))
 Computational κ f = Adv[ f κ ]≤ (_÷_ 1 (2 ^ κ) {fromWitnessFalse (^≢0 {1} {κ})})
