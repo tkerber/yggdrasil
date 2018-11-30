@@ -3,6 +3,7 @@ module Yggdrasil.Examples.SecureChannel where
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (_*_)
 open import Data.Product using (_×_) renaming (_,_ to ⟨_,_⟩)
 open import Level using (Level; Lift; lift)
 open import Relation.Binary.PropositionalEquality using (refl)
@@ -158,8 +159,8 @@ secure : {ℓ : Level} → (M C PK L : Set ℓ) → (l : M → L) →
   (pk?= : PK → PK → Bool) → (c?= : C → C → Bool) → 
   πᵢ-SecureChannel M L l ≃ πᵣ-SecureChannel M C PK L l pk?= c?=
 secure {ℓ} M C PK L l pk?= c?= = record
-  { g-exec-min = ?
-  ; g-sim-min  = ?
+  { sim-gas    = λ _ → 1000
+  ; gas-map    = _* 10
   ; simulator  = S-SecureChannel M C PK L l pk?= c?=
-  ; proof      = ?
+  ; proof      = λ{ g (strat α O) → ? }
   }

@@ -113,14 +113,15 @@ simulated-strategy S str g = strat
 record Adv[_,_]≤_ {ℓ : Level} (πᵢ πᵣ : World ℓ) (ε : ℚ) :
     Set (lsuc (lsuc ℓ)) where
   field
-    g-exec-min : ℕ
-    g-sim-min : ℕ
+    sim-gas : Strategy (World.Γ πᵣ) Guess → ℕ
+    gas-map : ℕ → ℕ
     simulator : Simulator πᵢ πᵣ
-    proof : (g-exec g-sim : ℕ) → g-exec-min ≤ g-exec → g-sim-min ≤ g-sim →
+    proof : (g : ℕ) →
       (str : Strategy (World.Γ πᵣ) Guess) →
-      (⌊exec⌋ (simulated-strategy simulator str g-sim) (World.Σ πᵢ) g-exec)
+      (⌊exec⌋ (simulated-strategy simulator str (sim-gas str)) (World.Σ πᵢ)
+        (gas-map g))
         ≈[ ε ]≈
-      (⌊exec⌋ str (World.Σ πᵣ) g-exec)
+      (⌊exec⌋ str (World.Σ πᵣ) g)
 
 _≃_ : {ℓ : Level} → (πᵢ πᵣ : World ℓ) → Set (lsuc (lsuc ℓ))
 πᵢ ≃ πᵣ = Adv[ πᵢ , πᵣ ]≤ 0
