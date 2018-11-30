@@ -16,20 +16,45 @@ open import Yggdrasil.List using (_∈_; here; there)
 data ⊤ {ℓ : Level} : Set ℓ where
   tt : ⊤
 
+-- I don't like the current gas situation.
+data Gas : Set where
+  zero : Gas
+  suc  : Gas → Gas
+  _⊓_  : Gas → Gas → Gas
+
+quite-a-bit′ : ℕ → Gas
+quite-a-bit′ n = nest n (linear n)
+  where
+    linear : ℕ → Gas → Gas
+    linear zero g = g
+    linear (suc n) g = suc (linear n g)
+    nest : ℕ → (Gas → Gas) → Gas
+    nest zero g = g zero
+    nest (suc n) g = g (nest n g ⊓ nest n g)
+
+quite-a-bit : Gas
+quite-a-bit = quite-a-bit′ 1000
+
 record Query (ℓ : Level) : Set (lsuc ℓ) where
   constructor mkquery
   field
     A : Set ℓ
     B : A → Set ℓ
+    g : Gas
 
-mknquery : {ℓ : Level} → Set ℓ → Set ℓ → Query ℓ
-mknquery A B = mkquery A (λ _ → B)
+mknquery : {ℓ : Level} → Set ℓ → Set ℓ → Gas → Query ℓ
+mknquery A B g = mkquery A (λ _ → B) g
 
 record Node (ℓ : Level) : Set (lsuc ℓ)
 record WorldType (ℓ : Level) : Set (lsuc ℓ)
-data Action↑ {ℓ : Level} (N : Node ℓ) : Set ℓ → Set (lsuc ℓ)
-data Action↓ {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
-data Action {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ)
+data _⊑_ {ℓ : Level} : (Γ₁ Γ₂ : WorldType ℓ) → Set (lsuc ℓ)
+Oracle : ∀ {ℓ} → WorldType ℓ → Set (lsuc ℓ)
+data Action↑ {ℓ : Level} {Γ′ : WorldType ℓ} (Γ : WorldType ℓ) (O : Oracle Γ′)
+  (Γ⊑ : Γ ⊑ Γ′) : Gas → Set ℓ → Set (lsuc ℓ)
+data Action↓ {ℓ : Level} {Γ′ : WorldType ℓ} (Γ : WorldType ℓ) (O : Oracle Γ′)
+  (Γ⊑ : Γ ⊑ Γ′) : Gas → Set ℓ → Set (lsuc ℓ)
+data Action {ℓ : Level} (Γ : WorldType ℓ) (O : Oracle Γ) : Gas → Set ℓ →
+  Set (lsuc ℓ)
 
 data WorldState {ℓ : Level} (Γ : WorldType ℓ) : Set (lsuc ℓ)
 data WorldStates {ℓ : Level} : List (WorldType ℓ) → Set (lsuc ℓ)
@@ -50,14 +75,14 @@ record Call (ℓ : Level) (N : Node ℓ) : Set (lsuc ℓ) where
   field
     A : Set ℓ
     B : A → Set ℓ
-    δ : (x : A) → Action↑ N (B x)
+    g : Gas
 
 -- A non-dependently typed instance of call.
-ncall : {ℓ : Level} {N : Node ℓ} → (A B : Set ℓ) → (A → Action↑ N B) → Call ℓ N
-ncall A B δ = call A (λ _ → B) δ
+--ncall : {ℓ : Level} {N : Node ℓ} → (A B : Set ℓ) → (g : Gas) → (A → Action↑ N g B) → Call ℓ N
+--ncall A B g δ = call A (λ _ → B) g δ
 
 weaken : ∀ {ℓ N} → Call ℓ N → Query ℓ
-weaken c = record { A = Call.A c; B = Call.B c }
+weaken c = record { A = Call.A c; B = Call.B c; g = Call.g c }
 
 record WorldType ℓ where
   inductive
@@ -69,7 +94,7 @@ record WorldType ℓ where
 
 open WorldType
 
-data _⊑_ {ℓ : Level} : (Γ₁ Γ₂ : WorldType ℓ) → Set (lsuc ℓ) where
+data _⊑_ {ℓ} where
   here : ∀ {Γ} → Γ ⊑ Γ
   there : ∀ {Γ₁ Γ₂ Γ₃} → Γ₂ ∈ chld (node Γ₃) → Γ₁ ⊑ Γ₂ → Γ₁ ⊑ Γ₃
 
@@ -80,34 +105,41 @@ data _⊑_ {ℓ : Level} : (Γ₁ Γ₂ : WorldType ℓ) → Set (lsuc ℓ) wher
 ⊑-right : ∀ {ℓ} {Γ₁ Γ₂ Γ₃ : WorldType ℓ} → Γ₂ ⊑ Γ₃ → Γ₁ ∈ chld (node Γ₂) → Γ₁ ⊑ Γ₃
 ⊑-right Γ⊑ ∈Γ = ⊑-trans (there ∈Γ here) Γ⊑
 
-data Action {ℓ} Γ where
-  _↑ : ∀ {A} → Action↓ {ℓ} Γ A → Action {ℓ} Γ A
-  abort : ∀ {A} → Action Γ A
-  dist  : ∀ {A} → Dist A → Action Γ A
-  call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ → (x : Call.A f) →
-    Action Γ (Call.B f x)
-  _>>=_ : ∀ {A B} → Action Γ A → (A → Action Γ B) → Action Γ B
+data Action {ℓ} Γ O where
+  lift-suc : ∀ {A g} → Action Γ O g A → Action Γ O (suc g) A
+  lift⊓₁ : ∀ {A g₁ g₂} → Action Γ O g₁ A → Action Γ O (g₁ ⊓ g₂) A
+  lift⊓₂ : ∀ {A g₁ g₂} → Action Γ O g₂ A → Action Γ O (g₁ ⊓ g₂) A
+  _↑ : ∀ {A g} → Action↓ {ℓ} Γ O here g A → Action {ℓ} Γ O (suc g) A
+  abort : ∀ {A} → Action Γ O zero A
+  dist  : ∀ {A} → Dist A → Action Γ O zero A
+  call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ →
+    (x : Call.A f) → Action Γ O (suc (Call.g f)) (Call.B f x)
+  _>>=_ : ∀ {A B g₁ g₂} → Action Γ O g₁ A → (A → Action Γ O g₂ B) → Action Γ O (g₁ ⊓ g₂) B
 
-data Action↓ {ℓ} Γ where
-  call↓ : ∀ {f} → f ∈ (hon Γ) → (x : Call.A f) → Action↓ Γ (Call.B f x)
+data Action↓ {ℓ} Γ O Γ⊑ where
+  call↓ : ∀ {f} → f ∈ (hon Γ) → (x : Call.A f) → Action↓ Γ O Γ⊑ (suc (Call.g f)) (Call.B f x)
 
-data Action↑ {ℓ} N where
-  read  : Action↑ N (state N)
-  write : state N → Action↑ N ⊤
-  abort : ∀ {A} → Action↑ N A
-  dist  : ∀ {A} → Dist A → Action↑ N A
-  query : ∀ {q} → q ∈ qry N → (x : Query.A q) → Action↑ N (Query.B q x)
-  _↑_   : ∀ {Γ A} → Action↓ Γ A → Γ ∈ chld N → Action↑ N A
-  _>>=_ : ∀ {A B} → Action↑ N A → (A → Action↑ N B) → Action↑ N B
+data Action↑ {ℓ} Γ O Γ⊑ where
+  read  : Action↑ Γ O Γ⊑ zero (state (node Γ))
+  write : state (node Γ) → Action↑ Γ O Γ⊑ zero ⊤
+  abort : ∀ {A} → Action↑ Γ O Γ⊑ zero A
+  dist  : ∀ {A} → Dist A → Action↑ Γ O Γ⊑ zero A
+  query : ∀ {q} → q ∈ qry (node Γ) → (x : Query.A q) →
+    Action↑ Γ O Γ⊑ (suc (Query.g q)) (Query.B q x)
+  _↑_   : ∀ {Γ′ A g} → (∈Γ : Γ′ ∈ chld (node Γ)) →
+    Action↓ Γ′ O (⊑-right Γ⊑ ∈Γ) g A →
+    Action↑ Γ O Γ⊑ (suc g) A
+  _>>=_ : ∀ {A B g₁ g₂} → Action↑ Γ O Γ⊑ g₁ A → (A → Action↑ Γ O Γ⊑ g₂ B) →
+    Action↑ Γ O Γ⊑ (g₁ ⊓ g₂) B
 
 -- TODO: build full monad instances of all actions, and Dist -- once I figure
 -- out how that works in agda.
-return : ∀ {ℓ N A} → A → Action↑ {ℓ} N A
+return : ∀ {ℓ Γ Γ′ O Γ⊑ A} → A → Action↑ {ℓ} {Γ′} Γ O Γ⊑ zero A
 return x = dist (pure x)
 
 infixl 1 _>>=_ _>>_
 
-_>>_ : ∀ {ℓ N A B} → Action↑ {ℓ} N A → Action↑ {ℓ} N B → Action↑ {ℓ} N B
+_>>_ : ∀ {ℓ Γ Γ′ O Γ⊑ A B g₁ g₂} → Action↑ {ℓ} Γ Γ′ O Γ⊑ g₁ A → Action↑ {ℓ} Γ O Γ⊑ g₂ B → Action↑ {ℓ} Γ O Γ⊑ (g₁ ⊓ g₂) B
 α >> β = α >>= (λ _ → β)
 
 data WorldStates {ℓ} where
@@ -125,14 +157,21 @@ record World (ℓ : Level) : Set (lsuc ℓ) where
 data _∈↑_ {ℓ : Level} (q : Query ℓ) (Γ : WorldType ℓ) : Set (lsuc ℓ) where
   path : ∀ {Γ′} → Γ′ ⊑ Γ → q ∈ qry (node Γ′) → q ∈↑ Γ
 
-Oracle : ∀ {ℓ} → WorldType ℓ → Set (lsuc ℓ)
-Oracle Γ = ∀ {q} → q ∈↑ Γ → (x : Query.A q) → Action Γ (Query.B q x)
+OEmpty : ∀ {ℓ} {Γ : WorldType ℓ} → Oracle Γ
+Oracle Γ = ∀ {q} → q ∈↑ Γ → (x : Query.A q) → Action Γ OEmpty (Query.g q) (Query.B q x)
+
+OEmpty {q = q} _ _ = abort* (Query.g q)
+  where
+    abort* : ∀ {Γ A} g → Action Γ OEmpty g A
+    abort* zero = abort
+    abort* (suc g) = lift-suc (abort* g)
+    abort* (g₁ ⊓ g₂) = lift⊓₁ (abort* g₁)
 
 record Strategy {ℓ : Level} (Γ : WorldType ℓ) (A : Set ℓ) : Set (lsuc ℓ) where
   constructor strat
   field
-    init : Action Γ A
     oracle : Oracle Γ
+    init : ∃[ g ] Action Γ oracle g A
 
 get : ∀ {ℓ Γ₁ Γ₂} → Γ₁ ⊑ Γ₂ → WorldState {ℓ} Γ₂ → state (node Γ₁)
 get here (stnode Σ _) = Σ
@@ -152,42 +191,40 @@ set (there Γ′∈ ⊑Γ) (stnode Σ Σs) Σ′ = stnode Σ (set′ Γ′∈ �
     set′ here ⊑Γ (Σ ∷ Σs) Σ′ = set ⊑Γ Σ Σ′ ∷ Σs
     set′ (there Γ∈) ⊑Γ (Σ ∷ Σs) Σ′ = Σ ∷ set′ Γ∈ ⊑Γ Σs Σ′
 
-⌊exec⌋ : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (Lift (lsuc ℓ) A))
-exec : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (A × WorldState {ℓ} Γ))
-exec′ : ∀ {ℓ Γ A} → Oracle Γ → Action Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (A × WorldState {ℓ} Γ))
-exec↓ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↓ Γ₂ A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
-exec↑ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↑ (node Γ₂) A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
-
--- NOTE: Gas is only used for termination here, it is NOT a computational model.
-⌊exec⌋ str Σ g = (exec str Σ g) >>= (pure ∘ mmap (llift ∘ proj₁))
-exec (strat α O) Σ g = exec′ O α Σ g
-
-exec′ O α                       Σ zero    = pure nothing
-exec′ O (α ↑)                   Σ g       = exec↓ O α Σ here g
-exec′ O abort                   Σ g       = pure nothing
-exec′ O (dist D)                Σ (suc g) = lift D >>= λ{ (llift x) → pure (just ⟨ x , Σ ⟩ ) }
-exec′ O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = exec↑ O (Call.δ f x) Σ ⊑Γ g
-exec′ O (α >>= β)               Σ (suc g) = (exec′ O α Σ (suc g)) >>= λ{
-  (just ⟨ x , Σ′ ⟩) → exec′ O (β x) Σ′ g;
-  nothing           → pure nothing }
-
-exec↓ _ _                    _ _  zero    = pure nothing
-exec↓ O (call↓ {f = f} f∈ x) Σ ⊑Γ (suc g) = exec↑ O (Call.δ f x) Σ ⊑Γ g
-
-exec↑ O α                    Σ ⊑Γ zero    = pure nothing
-exec↑ O read                 Σ ⊑Γ _       = pure (just ⟨ get ⊑Γ Σ , Σ ⟩)
-exec↑ O (write σ)            Σ ⊑Γ _       = pure (just ⟨ tt , set ⊑Γ Σ σ ⟩)
-exec↑ O abort                Σ ⊑Γ _       = pure nothing
-exec↑ O (dist D)             Σ ⊑Γ _       = lift D >>=
-  λ{ (llift x) → pure (just ⟨ x , Σ ⟩) }
-exec↑ O (query {q = q} q∈ x) Σ ⊑Γ (suc g) = exec′ O (O (path ⊑Γ q∈) x) Σ g
-exec↑ O (α ↑ Γ′∈)            Σ ⊑Γ (suc g) = exec↓ O α Σ (⊑-right ⊑Γ Γ′∈) g
-exec↑ O (α >>= β)            Σ ⊑Γ (suc g) = (exec↑ O α Σ ⊑Γ (suc g))
-  >>= λ{
-    (just ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ g;
-    nothing           → pure nothing }
+--⌊exec⌋ : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ →
+--  Dist (Maybe (Lift (lsuc ℓ) A))
+--exec : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ →
+--  Dist (Maybe (A × WorldState {ℓ} Γ))
+--exec′ : ∀ {ℓ Γ A} → Oracle Γ → (g : Gas) → Action Γ g A → WorldState {ℓ} Γ →
+--  Dist (Maybe (A × WorldState {ℓ} Γ))
+--exec↓ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → (g : Gas) → Action↓ Γ₂ g A → WorldState {ℓ} Γ₁ →
+--  Γ₂ ⊑ Γ₁ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
+--exec↑ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → (g : Gas) → Action↑ (node Γ₂) g A → WorldState {ℓ} Γ₁ →
+--  Γ₂ ⊑ Γ₁ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
+--
+---- NOTE: Gas is only used for termination here, it is NOT a computational model.
+--⌊exec⌋ str Σ = (exec str Σ) >>= (pure ∘ mmap (llift ∘ proj₁))
+--exec (strat ⟨ g , α ⟩ O) Σ = exec′ O g α Σ
+--
+--exec′ O (suc g)   (α ↑)                   Σ = exec↓ O g α Σ here
+--exec′ O zero      abort                   Σ = pure nothing
+--exec′ O zero      (dist D)                Σ = lift D >>= λ{ (llift x) → pure (just ⟨ x , Σ ⟩ ) }
+--exec′ O (suc g)   (call↯ {f = f} f∈ ⊑Γ x) Σ = exec↑ O g (Call.δ f x) Σ ⊑Γ
+--exec′ O (g₁ ⊓ g₂) (α >>= β)               Σ = (exec′ O g₁ α Σ) >>= λ{
+--  (just ⟨ x , Σ′ ⟩) → exec′ O g₂ (β x) Σ′;
+--  nothing           → pure nothing }
+--
+--exec↓ O (suc g) (call↓ {f = f} f∈ x) Σ ⊑Γ = exec↑ O g (Call.δ f x) Σ ⊑Γ
+--
+---- _>>=_ : ∀ {A B g₁ g₂} → Action↑ N g₁ A → (A → Action↑ N g₂ B) → Action↑ N (suc (g₁ + g₂)) B
+--exec↑ O zero      read                 Σ ⊑Γ = pure (just ⟨ get ⊑Γ Σ , Σ ⟩)
+--exec↑ O zero      (write σ)            Σ ⊑Γ = pure (just ⟨ tt , set ⊑Γ Σ σ ⟩)
+--exec↑ O zero      abort                Σ ⊑Γ = pure nothing
+--exec↑ O zero      (dist D)             Σ ⊑Γ = lift D >>=
+--  λ{ (llift x) → pure (just ⟨ x , Σ ⟩) }
+--exec↑ O (suc g)   (query {q = q} q∈ x) Σ ⊑Γ = exec′ O g (O (path ⊑Γ q∈) x) Σ
+--exec↑ O (suc g)   (α ↑ Γ′∈)            Σ ⊑Γ = exec↓ O g α Σ (⊑-right ⊑Γ Γ′∈)
+--exec↑ O (g₁ ⊓ g₂) (α >>= β)            Σ ⊑Γ = (exec↑ O g₁ α Σ ⊑Γ)
+--  >>= λ{
+--    (just ⟨ x , Σ′ ⟩) → exec↑ O g₂ (β x) Σ′ ⊑Γ;
+--    nothing           → pure nothing }

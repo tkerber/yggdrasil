@@ -15,7 +15,7 @@ open import Level using (Level; Lift; lift) renaming (suc to lsuc)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; sym)
 open import Relation.Nullary.Decidable using (fromWitnessFalse)
 open import Yggdrasil.List using (_∈_; here; there; with-proof; map≡-implies-∈≡)
-open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; ⌊exec⌋; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑; strat; ⊤; tt)
+open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; ⌊exec⌋; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑; strat; ⊤; tt; Gas; zero; suc; _⊓_)
 open import Yggdrasil.Probability using (Dist; _>>=_; pure; _≈[_]≈_)
 open import Yggdrasil.Rational using (_÷_)
 open WorldType
@@ -34,20 +34,19 @@ data Guess {ℓ : Level} : Set ℓ where
   real? ideal? : Guess
 
 data Action↯ {ℓ : Level} (σ : Set ℓ) (Γᵢ Γᵣ : WorldType ℓ)
-    {hon-≡ : map weaken (hon Γᵢ) ≡ map weaken (hon Γᵣ)} : Set ℓ →
+    {hon-≡ : map weaken (hon Γᵢ) ≡ map weaken (hon Γᵣ)} : Gas → Set ℓ →
     Set (lsuc ℓ) where
-  read  : Action↯ σ Γᵢ Γᵣ σ
-  write : σ → Action↯ σ Γᵢ Γᵣ ⊤
-  query : ∀ {Γ′ q} → q ∈ qry (node Γ′) → Γ′ ⊑ Γᵣ → (x : Query.A q) → Action↯ σ Γᵢ Γᵣ (Query.B q x)
-  abort : ∀ {A} → Action↯ σ Γᵢ Γᵣ A
-  dist  : ∀ {A} → Dist A → Action↯ σ Γᵢ Γᵣ A
+  read  : Action↯ σ Γᵢ Γᵣ zero σ
+  write : σ → Action↯ σ Γᵢ Γᵣ zero ⊤
+  query : ∀ {Γ′ q} → q ∈ qry (node Γ′) → Γ′ ⊑ Γᵣ → (x : Query.A q) → Action↯ σ Γᵢ Γᵣ (Query.g q) (Query.B q x)
+  abort : ∀ {A} → Action↯ σ Γᵢ Γᵣ zero A
+  dist  : ∀ {A} → Dist A → Action↯ σ Γᵢ Γᵣ zero A
   call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γᵢ → (x : Call.A f) →
-    Action↯ σ Γᵢ Γᵣ (Call.B f x)
-  _>>=_ : ∀ {A B} → Action↯ σ Γᵢ Γᵣ {hon-≡} A → (A → Action↯ σ Γᵢ Γᵣ {hon-≡} B) →
-    Action↯ σ Γᵢ Γᵣ B
+    Action↯ σ Γᵢ Γᵣ (Call.g f) (Call.B f x)
+  _>>=_ : ∀ {A B g₁ g₂} → Action↯ σ Γᵢ Γᵣ {hon-≡} g₁ A →
+    (A → Action↯ σ Γᵢ Γᵣ {hon-≡} g₂ B) →
+    Action↯ σ Γᵢ Γᵣ (g₁ ⊓ g₂) B
 
--- FIXME: Am I an idiot? Shouldn't the simulator map attacks against *real*
--- protocols to attacks against *ideal* protocols?
 record Simulator {ℓ : Level} (πᵢ πᵣ : World ℓ) : Set (lsuc ℓ) where
   Γᵢ : WorldType ℓ
   Γᵢ = World.Γ πᵢ
@@ -57,70 +56,73 @@ record Simulator {ℓ : Level} (πᵢ πᵣ : World ℓ) : Set (lsuc ℓ) where
     hon-≡ : map weaken (hon Γᵢ) ≡ map weaken (hon Γᵣ)
     state : Set ℓ
     initial : state
-    call↯-map : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γᵣ →
-      (x : Call.A f) → Action↯ state Γᵢ Γᵣ {hon-≡} (Call.B f x)
-    query-map : ∀ {q} → q ∈↑ Γᵢ → (x : Query.A q) → Action↯ state Γᵢ Γᵣ {hon-≡} (Query.B q x)
+    call↯-map : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γᵣ → ∃[ g ]
+      ((x : Call.A f) → Action↯ state Γᵢ Γᵣ {hon-≡} g (Call.B f x))
+    query-map : ∀ {q} → q ∈↑ Γᵢ → ∃[ g ]
+      ((x : Query.A q) → Action↯ state Γᵢ Γᵣ {hon-≡} g (Query.B q x))
 
 open Simulator
 
-Actionᵣ⇒Actionᵢ : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} →
-  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → state S → ℕ →
-  Action (World.Γ πᵣ) A → Action (World.Γ πᵢ) (A × state S)
-Action↯⇒Action : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} →
-  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → state S → ℕ →
-  Action↯ (state S) (World.Γ πᵢ) (World.Γ πᵣ) {hon-≡ S} A →
-  Action (World.Γ πᵢ) (A × state S)
+Actionᵣ⇒Actionᵢ : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} {g : Gas} →
+  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → state S →
+  ∃[ g′ ] (Action (World.Γ πᵣ) g A → Action (World.Γ πᵢ) g′ (A × state S))
+Action↯⇒Action : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} {g : Gas} →
+  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → state S →
+  ∃[ g′ ] (Action↯ (state S) (World.Γ πᵢ) (World.Γ πᵣ) {hon-≡ S} g A →
+  Action (World.Γ πᵢ) g′ (A × state S))
 
 private
-  with-state : ∀ {ℓ Γ A Σ} → Σ → A → Action {ℓ} Γ (A × Σ)
+  with-state : ∀ {ℓ Γ A Σ} → Σ → A → Action {ℓ} Γ zero (A × Σ)
   with-state σ x = dist (pure ⟨ x , σ ⟩)
 
-  without-state : ∀ {ℓ Γ} {A Σ : Set ℓ} → (A × Σ) → Action {ℓ} Γ A
+  without-state : ∀ {ℓ Γ} {A Σ : Set ℓ} → (A × Σ) → Action {ℓ} Γ zero A
   without-state ⟨ x , _ ⟩ = dist (pure x)
 
-Actionᵣ⇒Actionᵢ _ _ _ zero _ = abort
-Actionᵣ⇒Actionᵢ S O σ (suc g) ((call↓ {f} ∈Γᵣ x) ↑) with map≡-implies-∈≡ (sym (hon-≡ S)) ∈Γᵣ
-... | ⟨ _ , ⟨ ∈Γᵢ , refl ⟩ ⟩ = call↓ ∈Γᵢ x ↑ >>= with-state σ
-Actionᵣ⇒Actionᵢ _ _ _ _ abort = abort
-Actionᵣ⇒Actionᵢ _ _ σ _ (dist D) = dist D >>= with-state σ
-Actionᵣ⇒Actionᵢ S O σ (suc g) (call↯ ∈Γ Γ⊑ x) = Action↯⇒Action S O σ g (call↯-map S ∈Γ Γ⊑ x)
-Actionᵣ⇒Actionᵢ S O σ (suc g) (α >>= β) = (Actionᵣ⇒Actionᵢ S O σ (suc g) α) >>= λ{
-    ⟨ x , σ′ ⟩ → Actionᵣ⇒Actionᵢ S O σ′ g (β x)
-  }
+Actionᵣ⇒Actionᵢ {g} S O σ = ?
+--Actionᵣ⇒Actionᵢ S O σ ((call↓ {f} ∈Γᵣ x) ↑) with map≡-implies-∈≡ (sym (hon-≡ S)) ∈Γᵣ
+--... | ⟨ _ , ⟨ ∈Γᵢ , refl ⟩ ⟩ = ⟨ ? ⊓ zero , call↓ ∈Γᵢ x ↑ >>= with-state σ ⟩
+--Actionᵣ⇒Actionᵢ _ _ _ abort = ⟨ zero , abort ⟩
+--Actionᵣ⇒Actionᵢ _ _ σ (dist D) = ⟨ zero ⊓ zero , dist D >>= with-state σ ⟩
+--Actionᵣ⇒Actionᵢ S O σ (call↯ ∈Γ Γ⊑ x) = let
+--    ⟨ g , α ⟩ = call↯-map S ∈Γ Γ⊑
+--  in Action↯⇒Action S O σ (α x)
+--Actionᵣ⇒Actionᵢ S O σ (α >>= β) = ? --⟨ ? , (Actionᵣ⇒Actionᵢ S O σ α) >>= (λ{
+--    ⟨ x , σ′ ⟩ → Actionᵣ⇒Actionᵢ S O σ′ (β x)
+--  }) ⟩
 
-Action↯⇒Action _ _ _ zero _ = abort
-Action↯⇒Action S O σ _ read = dist (pure ⟨ σ , σ ⟩)
-Action↯⇒Action S O _ _ (write σ) = dist (pure ⟨ tt , σ ⟩)
-Action↯⇒Action S O σ (suc g) (query ∈Γ Γ⊑ x) = Actionᵣ⇒Actionᵢ S O σ g (O (path Γ⊑ ∈Γ) x)
-Action↯⇒Action _ _ _ _ abort = abort
-Action↯⇒Action _ _ σ _ (dist D) = dist D >>= with-state σ
-Action↯⇒Action _ _ σ _ (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x >>= with-state σ
-Action↯⇒Action S O σ (suc g) (α >>= β) = (Action↯⇒Action S O σ (suc g) α) >>= λ{
-    ⟨ x , σ′ ⟩ → Action↯⇒Action S O σ′ g (β x)
-  }
+Action↯⇒Action = ?
+--Action↯⇒Action S O σ read = dist (pure ⟨ σ , σ ⟩)
+--Action↯⇒Action S O _ (write σ) = dist (pure ⟨ tt , σ ⟩)
+--Action↯⇒Action S O σ (query ∈Γ Γ⊑ x) = Actionᵣ⇒Actionᵢ S O σ g (O (path Γ⊑ ∈Γ) x)
+--Action↯⇒Action _ _ _ abort = ⟨ zero , abort ⟩
+--Action↯⇒Action _ _ σ (dist D) = dist D >>= with-state σ
+--Action↯⇒Action _ _ σ (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x >>= with-state σ
+--Action↯⇒Action S O σ (α >>= β) = ? --(Action↯⇒Action S O σ (suc g) α) >>= λ{
+--    ⟨ x , σ′ ⟩ → Action↯⇒Action S O σ′ g (β x)
+--  }
 
-extract-oracle : ∀ {ℓ πᵢ πᵣ} → Simulator {ℓ} πᵢ πᵣ → Oracle (World.Γ πᵣ) → ℕ →
+extract-oracle : ∀ {ℓ πᵢ πᵣ} → Simulator {ℓ} πᵢ πᵣ → Oracle (World.Γ πᵣ) →
   Oracle (World.Γ πᵢ)
-extract-oracle S O g ∈Γ x = Action↯⇒Action S O (initial S) g (query-map S ∈Γ x)
-  >>= without-state
+extract-oracle = ?
+--extract-oracle S O g ∈Γ x = Action↯⇒Action S O (initial S) g (query-map S ∈Γ x)
+--  >>= without-state
 
 simulated-strategy : ∀ {ℓ πᵢ πᵣ A} → Simulator {ℓ} πᵢ πᵣ →
-  Strategy (World.Γ πᵣ) A → ℕ → Strategy (World.Γ πᵢ) A
-simulated-strategy S str g = strat
-  (Actionᵣ⇒Actionᵢ S (oracle str) (initial S) g (init str) >>= without-state)
-  (extract-oracle S (oracle str) g)
+  Strategy (World.Γ πᵣ) A → Strategy (World.Γ πᵢ) A
+simulated-strategy = ?
+--simulated-strategy S str g = strat
+--  (Actionᵣ⇒Actionᵢ S (oracle str) (initial S) g (init str) >>= without-state)
+--  (extract-oracle S (oracle str) g)
 
 record Adv[_,_]≤_ {ℓ : Level} (πᵢ πᵣ : World ℓ) (ε : ℚ) :
     Set (lsuc (lsuc ℓ)) where
   field
-    g-exec-min : ℕ
-    g-sim-min : ℕ
     simulator : Simulator πᵢ πᵣ
-    proof : (g-exec g-sim : ℕ) → g-exec-min ≤ g-exec → g-sim-min ≤ g-sim →
+    proof :
       (str : Strategy (World.Γ πᵣ) Guess) →
-      (⌊exec⌋ (simulated-strategy simulator str g-sim) (World.Σ πᵢ) g-exec)
+      (⌊exec⌋ (simulated-strategy simulator str) (World.Σ πᵢ))
         ≈[ ε ]≈
-      (⌊exec⌋ str (World.Σ πᵣ) g-exec)
+      (⌊exec⌋ str (World.Σ πᵣ))
 
 _≃_ : {ℓ : Level} → (πᵢ πᵣ : World ℓ) → Set (lsuc (lsuc ℓ))
 πᵢ ≃ πᵣ = Adv[ πᵢ , πᵣ ]≤ 0
