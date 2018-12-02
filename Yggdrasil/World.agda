@@ -152,42 +152,52 @@ set (there Γ′∈ ⊑Γ) (stnode Σ Σs) Σ′ = stnode Σ (set′ Γ′∈ �
     set′ here ⊑Γ (Σ ∷ Σs) Σ′ = set ⊑Γ Σ Σ′ ∷ Σs
     set′ (there Γ∈) ⊑Γ (Σ ∷ Σs) Σ′ = Σ ∷ set′ Γ∈ ⊑Γ Σs Σ′
 
+data Result {ℓ : Level} (A : Set ℓ) : Set ℓ where
+  abort      : Result A
+  out-of-gas : Result A
+  result     : A → Result A
+
+rmap : ∀ {ℓ A B} → (A → B) → Result {ℓ} A → Result {ℓ} B
+rmap _ abort = abort
+rmap _ out-of-gas = out-of-gas
+rmap f (result x) = result (f x)
+
 ⌊exec⌋ : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (Lift (lsuc ℓ) A))
-exec : ∀ {ℓ Γ A} → Strategy {ℓ} Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (A × WorldState {ℓ} Γ))
-exec′ : ∀ {ℓ Γ A} → Oracle Γ → Action Γ A → WorldState {ℓ} Γ → ℕ →
-  Dist (Maybe (A × WorldState {ℓ} Γ))
+  Dist (Result (Lift (lsuc ℓ) A))
+exec : ∀ {ℓ Γ A} → Oracle Γ → Action Γ A → WorldState {ℓ} Γ → ℕ →
+  Dist (Result (A × WorldState {ℓ} Γ))
 exec↓ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↓ Γ₂ A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
+  Γ₂ ⊑ Γ₁ → ℕ → Dist (Result (A × WorldState {ℓ} Γ₁))
 exec↑ : ∀ {ℓ Γ₁ Γ₂ A} → Oracle Γ₁ → Action↑ (node Γ₂) A → WorldState {ℓ} Γ₁ →
-  Γ₂ ⊑ Γ₁ → ℕ → Dist (Maybe (A × WorldState {ℓ} Γ₁))
+  Γ₂ ⊑ Γ₁ → ℕ → Dist (Result (A × WorldState {ℓ} Γ₁))
 
 -- NOTE: Gas is only used for termination here, it is NOT a computational model.
-⌊exec⌋ str Σ g = (exec str Σ g) >>= (pure ∘ mmap (llift ∘ proj₁))
-exec (strat α O) Σ g = exec′ O α Σ g
+⌊exec⌋ (strat α O) Σ g = (exec O α Σ g) >>= (pure ∘ rmap (llift ∘ proj₁))
 
-exec′ O α                       Σ zero    = pure nothing
-exec′ O (α ↑)                   Σ g       = exec↓ O α Σ here g
-exec′ O abort                   Σ g       = pure nothing
-exec′ O (dist D)                Σ (suc g) = lift D >>= λ{ (llift x) → pure (just ⟨ x , Σ ⟩ ) }
-exec′ O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = exec↑ O (Call.δ f x) Σ ⊑Γ g
-exec′ O (α >>= β)               Σ (suc g) = (exec′ O α Σ (suc g)) >>= λ{
-  (just ⟨ x , Σ′ ⟩) → exec′ O (β x) Σ′ g;
-  nothing           → pure nothing }
+exec O α                       Σ zero    = pure out-of-gas
+exec O (α ↑)                   Σ g       = exec↓ O α Σ here g
+exec O abort                   Σ g       = pure abort
+exec O (dist D)                Σ (suc g) = lift D >>= λ{
+  (llift x) → pure (result ⟨ x , Σ ⟩ ) }
+exec O (call↯ {f = f} f∈ ⊑Γ x) Σ (suc g) = exec↑ O (Call.δ f x) Σ ⊑Γ g
+exec O (α >>= β)               Σ (suc g) = (exec O α Σ (suc g)) >>= λ{
+  (result ⟨ x , Σ′ ⟩) → exec O (β x) Σ′ g ;
+  abort               → pure abort        ;
+  out-of-gas          → pure out-of-gas   }
 
-exec↓ _ _                    _ _  zero    = pure nothing
+exec↓ _ _                    _ _  zero    = pure out-of-gas
 exec↓ O (call↓ {f = f} f∈ x) Σ ⊑Γ (suc g) = exec↑ O (Call.δ f x) Σ ⊑Γ g
 
-exec↑ O α                    Σ ⊑Γ zero    = pure nothing
-exec↑ O read                 Σ ⊑Γ _       = pure (just ⟨ get ⊑Γ Σ , Σ ⟩)
-exec↑ O (write σ)            Σ ⊑Γ _       = pure (just ⟨ tt , set ⊑Γ Σ σ ⟩)
-exec↑ O abort                Σ ⊑Γ _       = pure nothing
+exec↑ O α                    Σ ⊑Γ zero    = pure out-of-gas
+exec↑ O read                 Σ ⊑Γ _       = pure (result ⟨ get ⊑Γ Σ , Σ ⟩)
+exec↑ O (write σ)            Σ ⊑Γ _       = pure (result ⟨ tt , set ⊑Γ Σ σ ⟩)
+exec↑ O abort                Σ ⊑Γ _       = pure abort
 exec↑ O (dist D)             Σ ⊑Γ _       = lift D >>=
-  λ{ (llift x) → pure (just ⟨ x , Σ ⟩) }
-exec↑ O (query {q = q} q∈ x) Σ ⊑Γ (suc g) = exec′ O (O (path ⊑Γ q∈) x) Σ g
+  λ{ (llift x) → pure (result ⟨ x , Σ ⟩) }
+exec↑ O (query {q = q} q∈ x) Σ ⊑Γ (suc g) = exec O (O (path ⊑Γ q∈) x) Σ g
 exec↑ O (α ↑ Γ′∈)            Σ ⊑Γ (suc g) = exec↓ O α Σ (⊑-right ⊑Γ Γ′∈) g
 exec↑ O (α >>= β)            Σ ⊑Γ (suc g) = (exec↑ O α Σ ⊑Γ (suc g))
   >>= λ{
-    (just ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ g;
-    nothing           → pure nothing }
+    (result ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ g ;
+    abort               → pure abort            ;
+    out-of-gas          → pure out-of-gas       }
