@@ -9,15 +9,15 @@ open import Data.List using (_∷_; []; map)
 open import Data.Product using (_×_; Σ; Σ-syntax; proj₁; proj₂; ∃; ∃-syntax) renaming (_,_ to ⟨_,_⟩)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _^_; _+_)
 open import Data.Integer using (ℤ)
-open import Data.Maybe using (Maybe) renaming (map to mmap)
+open import Data.Maybe using (Maybe; just; nothing) renaming (map to mmap)
 open import Data.Rational using (ℚ)
 open import Function using (_∘_)
 open import Level using (Level; Lift; lift) renaming (suc to lsuc)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong; sym)
-open import Relation.Nullary.Decidable using (fromWitnessFalse)
+open import Relation.Nullary.Decidable using (True; fromWitnessFalse)
 open import Yggdrasil.List using (_∈_; here; there; with-proof; map≡-implies-∈≡)
-open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; Action; weaken; call; call↓; _↑_; stnode; _∷_; []; ⌊exec⌋; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; _↑; strat; ⊤; tt; Action↓; exec↓)
-open import Yggdrasil.Probability using (Dist; _>>=_; pure; _≈[_]≈_)
+open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; weaken; call; call↓; stnode; _∷_; []; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; strat; ⊤; tt; Action⊤; read; write; exec⊤; Result; out-of-gas; result; rmap; T)
+open import Yggdrasil.Probability as Pr using (Dist; _>>=_; pure; _≈[_]≈_; dmap; _*_; Pr[_[_]]≡_)
 open import Yggdrasil.Rational using (_÷_)
 open WorldType
 open Node
@@ -47,8 +47,6 @@ data Action↯ {ℓ : Level} (σ : Set ℓ) (Γᵢ Γᵣ : WorldType ℓ)
   _>>=_ : ∀ {A B} → Action↯ σ Γᵢ Γᵣ {hon-≡} A → (A → Action↯ σ Γᵢ Γᵣ {hon-≡} B) →
     Action↯ σ Γᵢ Γᵣ B
 
--- FIXME: Am I an idiot? Shouldn't the simulator map attacks against *real*
--- protocols to attacks against *ideal* protocols?
 record Simulator {ℓ : Level} (πᵢ πᵣ : World ℓ) : Set (lsuc ℓ) where
   Γᵢ : WorldType ℓ
   Γᵢ = World.Γ πᵢ
@@ -62,60 +60,55 @@ record Simulator {ℓ : Level} (πᵢ πᵣ : World ℓ) : Set (lsuc ℓ) where
       (x : Call.A f) → Action↯ state Γᵢ Γᵣ {hon-≡} (Call.B f x)
     query-map : ∀ {q} → q ∈↑ Γᵢ → (x : Query.A q) → Action↯ state Γᵢ Γᵣ {hon-≡} (Query.B q x)
 
-Actionᵣ⇒Actionᵢ : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} →
-  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → Simulator.state S → ℕ →
-  Action (World.Γ πᵣ) A → Action (World.Γ πᵢ) (A × Simulator.state S)
-Action↯⇒Action : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} →
-  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → Simulator.state S → ℕ →
+Actionᵣ⇒Actionᵢ : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} {σ} →
+  (S : Simulator πᵢ πᵣ) → Oracle σ (World.Γ πᵣ) → ℕ →
+  Action⊤ σ (World.Γ πᵣ) A → Action⊤ (σ × Simulator.state S) (World.Γ πᵢ) A
+Action↯⇒Action : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} {σ} →
+  (S : Simulator πᵢ πᵣ) → Oracle σ (World.Γ πᵣ) → ℕ →
   Action↯ (Simulator.state S) (World.Γ πᵢ) (World.Γ πᵣ) {Simulator.hon-≡ S} A →
-  Action (World.Γ πᵢ) (A × Simulator.state S)
+  Action⊤ (σ × Simulator.state S) (World.Γ πᵢ) A
 
 private
-  with-state : ∀ {ℓ Γ A Σ} → Σ → A → Action {ℓ} Γ (A × Σ)
-  with-state σ x = dist (pure ⟨ x , σ ⟩)
-
-  without-state : ∀ {ℓ Γ} {A Σ : Set ℓ} → (A × Σ) → Action {ℓ} Γ A
-  without-state ⟨ x , _ ⟩ = dist (pure x)
-
--- WAIT -- Does the state actually properly survive?
--- FIXME: No, it doesn't. This is probably *unavoidable* without adding state
--- to the execution definition. Do this.
-Actionᵣ⇒Actionᵢ _ _ _ zero _ = abort
-Actionᵣ⇒Actionᵢ S O σ (suc g) ((call↓ {f} ∈Γᵣ x) ↑) with map≡-implies-∈≡  
+  amap : ∀ {ℓ S Γ A B} → (A → B) → Action⊤ {ℓ} S Γ A → Action⊤ {ℓ} S Γ B
+  amap f α = α >>= (λ x → dist (pure (f x)))
+Actionᵣ⇒Actionᵢ S O g read = amap proj₁ read
+Actionᵣ⇒Actionᵢ S O g (write σ₁) = read >>= λ { ⟨ _ , σ₂ ⟩ → write ⟨ σ₁ , σ₂ ⟩ }
+Actionᵣ⇒Actionᵢ S O g (call↓ {f} ∈Γᵣ x) with map≡-implies-∈≡  
     (sym (Simulator.hon-≡ S)) ∈Γᵣ
-... | ⟨ _ , ⟨ ∈Γᵢ , refl ⟩ ⟩ = call↓ ∈Γᵢ x ↑ >>= with-state σ
-Actionᵣ⇒Actionᵢ _ _ _ _ abort = abort
-Actionᵣ⇒Actionᵢ _ _ σ _ (dist D) = dist D >>= with-state σ
-Actionᵣ⇒Actionᵢ S O σ (suc g) (call↯ ∈Γ Γ⊑ x) = Action↯⇒Action S O σ g
+... | ⟨ _ , ⟨ ∈Γᵢ , refl ⟩ ⟩ = call↓ ∈Γᵢ x
+Actionᵣ⇒Actionᵢ _ _ _ abort = abort
+Actionᵣ⇒Actionᵢ _ _ _ (dist D) = dist D
+Actionᵣ⇒Actionᵢ S O g (call↯ ∈Γ Γ⊑ x) = Action↯⇒Action S O g
   (Simulator.call↯-map S ∈Γ Γ⊑ x)
-Actionᵣ⇒Actionᵢ S O σ (suc g) (α >>= β) = (Actionᵣ⇒Actionᵢ S O σ (suc g) α) >>=
-  λ{ ⟨ x , σ′ ⟩ → Actionᵣ⇒Actionᵢ S O σ′ g (β x) }
+Actionᵣ⇒Actionᵢ S O g (α >>= β) = (Actionᵣ⇒Actionᵢ S O g α) >>=
+  Actionᵣ⇒Actionᵢ S O g ∘ β
 
-Action↯⇒Action _ _ _ zero _ = abort
-Action↯⇒Action S O σ _ read = dist (pure ⟨ σ , σ ⟩)
-Action↯⇒Action S O _ _ (write σ) = dist (pure ⟨ tt , σ ⟩)
-Action↯⇒Action S O σ (suc g) (query ∈Γ Γ⊑ x) = Actionᵣ⇒Actionᵢ S O σ g (O (path Γ⊑ ∈Γ) x)
-Action↯⇒Action _ _ _ _ abort = abort
-Action↯⇒Action _ _ σ _ (dist D) = dist D >>= with-state σ
-Action↯⇒Action _ _ σ _ (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x >>= with-state σ
-Action↯⇒Action S O σ (suc g) (α >>= β) = (Action↯⇒Action S O σ (suc g) α) >>= λ{
-    ⟨ x , σ′ ⟩ → Action↯⇒Action S O σ′ g (β x)
-  }
+Action↯⇒Action S O g       read            = amap proj₂ read
+Action↯⇒Action S O g       (write σ₂)      = read >>= λ { ⟨ σ₁ , _ ⟩ → write ⟨ σ₁ , σ₂ ⟩ }
+Action↯⇒Action S O zero    (query ∈Γ Γ⊑ x) = abort
+Action↯⇒Action S O (suc g) (query ∈Γ Γ⊑ x) = Actionᵣ⇒Actionᵢ S O g (O (path Γ⊑ ∈Γ) x)
+Action↯⇒Action S O g       abort           = abort
+Action↯⇒Action S O g       (dist D)        = dist D
+Action↯⇒Action S O g       (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x
+Action↯⇒Action S O g       (α >>= β)       = (Action↯⇒Action S O g α) >>=
+  Action↯⇒Action S O g ∘ β
 
-extract-oracle : ∀ {ℓ πᵢ πᵣ} → Simulator {ℓ} πᵢ πᵣ → Oracle (World.Γ πᵣ) → ℕ →
-  Oracle (World.Γ πᵢ)
-extract-oracle S O g ∈Γ x = Action↯⇒Action S O (initial S) g
-  (Simulator.query-map S ∈Γ x) >>= without-state
+extract-oracle : ∀ {ℓ σ πᵢ πᵣ} → (S : Simulator {ℓ} πᵢ πᵣ) →
+  Oracle σ (World.Γ πᵣ) → ℕ → Oracle (σ × Simulator.state S) (World.Γ πᵢ)
+extract-oracle S O g ∈Γ x = Action↯⇒Action S O g
+  (query-map S ∈Γ x)
   where open Simulator
 
-simulated-strategy : ∀ {ℓ πᵢ πᵣ A} → Simulator {ℓ} πᵢ πᵣ →
-  Strategy (World.Γ πᵣ) A → ℕ → Strategy (World.Γ πᵢ) A
-simulated-strategy S str g = strat
-  (Actionᵣ⇒Actionᵢ S (oracle str) (initial S) g (init str) >>= without-state)
-  (extract-oracle S (oracle str) g)
-  where open Simulator
+data InterestingAction {ℓ : Level} (Γ : WorldType ℓ) : Set ℓ → Set (lsuc ℓ) where
+  call↓ : ∀ {f} → f ∈ (hon Γ) → (x : Call.A f) → InterestingAction Γ (Call.B f x)
+  call↯ : ∀ {Γ′} {f : Call ℓ (node Γ′)} → f ∈ (adv Γ′) → Γ′ ⊑ Γ →
+    (x : Call.A f) → InterestingAction Γ (Call.B f x)
 
-record Adv[_,_]≤_ {ℓ : Level} (πᵢ πᵣ : World ℓ) (ε : ℚ) :
+toAction : ∀ {ℓ Γ A S} → InterestingAction {ℓ} Γ A → Action⊤ {ℓ} S Γ A
+toAction (call↓ f∈ x) = call↓ f∈ x
+toAction (call↯ ∈Γ Γ⊑ x) = call↯ ∈Γ Γ⊑ x
+
+record _≃_ {ℓ : Level} (πᵢ πᵣ : World ℓ) :
     Set (lsuc (lsuc ℓ)) where
   Γᵣ : WorldType ℓ
   Γᵣ = World.Γ πᵣ
@@ -126,43 +119,38 @@ record Adv[_,_]≤_ {ℓ : Level} (πᵢ πᵣ : World ℓ) (ε : ℚ) :
   Σᵢ : WorldState Γᵢ
   Σᵢ = World.Σ πᵢ
   field
-    sim-gas : ℕ
     gas-map : ℕ → ℕ
     simulator : Simulator πᵢ πᵣ
-    invariant : (WorldState Γᵢ × WorldState Γᵣ) × Simulator.state simulator → Bool
-    base-case : invariant ⟨ ⟨ Σᵢ , Σᵣ ⟩ , Simulator.initial simulator ⟩ ≡ true
-    proof : (g : ℕ) → (O : Oracle Γᵣ) → ∀ {A} → (α : Action↓ Γᵣ A) →
-      (Σ : ((WorldState Γᵢ × WorldState Γᵣ) × Simulator.state simulator)) →
-      invariant Σ ≡ true → 
-      let
-        dᵢ = exec↓ (extract-oracle simulator O sim-gas)
-          (Actionᵣ⇒Actionᵢ simulator O (proj₂ Σ) sim-gas α)
-          (proj₁ (proj₁ Σ)) here g
-      in ?
-      
-
---Actionᵣ⇒Actionᵢ : ∀ {ℓ : Level} {πᵢ πᵣ : World ℓ} {A : Set ℓ} →
---  (S : Simulator πᵢ πᵣ) → Oracle (World.Γ πᵣ) → Simulator.state S → ℕ →
---  Action (World.Γ πᵣ) A → Action (World.Γ πᵢ) (A × Simulator.state S)
-
-
---      (str : Strategy Γᵣ Guess) →
---      (⌊exec⌋ (simulated-strategy simulator str (sim-gas str)) (World.Σ πᵢ)
---        (gas-map g))
---        ≈[ ε ]≈
---      (⌊exec⌋ str (World.Σ πᵣ) g)
-
-_≃_ : {ℓ : Level} → (πᵢ πᵣ : World ℓ) → Set (lsuc (lsuc ℓ))
-πᵢ ≃ πᵣ = Adv[ πᵢ , πᵣ ]≤ 0
-
-private
-  +-≡0ˡ : ∀ {n m} → n + m ≡ 0 → n ≡ 0
-  +-≡0ˡ {zero} _ = refl
-  +-≡0ˡ {suc n} ()
-
-  ^≢0 : ∀ {n m} → (suc n) ^ m ≢ 0
-  ^≢0 {n} {zero} ()
-  ^≢0 {n} {suc m} n^sm≡0 = ^≢0 {n} {m} (+-≡0ˡ n^sm≡0)
-
-_≈_ : {ℓ : Level} → (πᵢ πᵣ : ℕ → World ℓ) → ℕ → Set (lsuc (lsuc ℓ))
-_≈_ πᵢ πᵣ κ = Adv[ πᵢ κ , πᵣ κ ]≤ (_÷_ 1 (2 ^ κ) {fromWitnessFalse (^≢0 {1} {κ})})
+    invariant : ((WorldState Γᵢ × Simulator.state simulator) × WorldState Γᵣ) → Bool
+    base-case : invariant ⟨ ⟨ Σᵢ , Simulator.initial simulator ⟩ , Σᵣ ⟩ ≡ true
+    proof : (g : ℕ) →
+      ∀ {S} →
+      (σ : S) →
+      (O : Oracle S Γᵣ) →
+      ∀ {A} →
+      (α : InterestingAction Γᵣ A) →
+      (Σ : (WorldState Γᵢ × Simulator.state simulator) × WorldState Γᵣ) →
+      invariant Σ ≡ true →
+        let
+          Dᵢ = exec⊤ (extract-oracle simulator O (gas-map g))
+            (Actionᵣ⇒Actionᵢ simulator O (gas-map g) (toAction α))
+            ⟨ ⟨ σ , proj₂ (proj₁ Σ) ⟩ , proj₁ (proj₁ Σ) ⟩ (gas-map g)
+          Dᵣ = exec⊤ O (toAction α) ⟨ σ , proj₂ Σ ⟩ g
+          Dₛ = dmap {B = Maybe ((WorldState Γᵢ × Simulator.state simulator) × WorldState Γᵣ)} (λ
+            { ⟨ abort      , _          ⟩ → nothing
+            ; ⟨ out-of-gas , _          ⟩ → nothing
+            ; ⟨ _          , abort      ⟩ → nothing
+            ; ⟨ _          , out-of-gas ⟩ → nothing
+            ; ⟨ result ⟨ _ , ⟨ ⟨ _ , σ ⟩ , Σᵢ ⟩ ⟩
+              , result ⟨ _ , ⟨ _ , Σᵣ       ⟩ ⟩ ⟩ →
+                just ⟨ ⟨ Σᵢ , σ ⟩ , Σᵣ ⟩
+            }) (Dᵢ * Dᵣ)
+        in
+        -- The results are indistinguishable.
+        (dmap (rmap (λ x → lift (proj₁ x))) Dᵢ Pr.≃ dmap (rmap (λ x → lift (proj₁ x))) Dᵣ) ×
+        -- The resulting environment states are indistinguishable.
+        (dmap (rmap (λ x → lift (proj₁ (proj₁ (proj₂ x))))) Dᵢ
+            Pr.≃
+         dmap (rmap (λ x → lift (proj₁ (proj₂ x)))) Dᵣ) ×
+        -- And any resulting system states are in the invariant.
+        (Pr[ (λ { nothing → ⊤; (just x) → T (invariant x) }) [ Dₛ ]]≡ 1)

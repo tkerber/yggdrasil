@@ -1,7 +1,7 @@
 module Yggdrasil.Examples.SecureChannel where
 
-open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.List using (List; []; _∷_)
+open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
+open import Data.List using (List; []; _∷_; any)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (_*_)
 open import Data.Product using (_×_) renaming (_,_ to ⟨_,_⟩)
@@ -13,7 +13,6 @@ open import Yggdrasil.Security
 open import Yggdrasil.Probability using (pure)
 
 open Action↑
-open Action↓
 open Action↯
 open WorldStates
 
@@ -85,19 +84,19 @@ open WorldStates
       []
     ; adv  = []
     ; hon  =
-      ncall ⊤ (Maybe M) (λ _ → call↓ here tt ↑ there here >>= λ
+      ncall ⊤ (Maybe M) (λ _ → call↓ here (there here) tt >>= λ
         { nothing  → return nothing
-        ; (just c) → call↓ here c ↑ here
+        ; (just c) → call↓ here here c
         }) ∷
       ncall M ⊤ (λ m → let
-          dosend = λ pk m → call↓ (there here) ⟨ pk , m ⟩ ↑ here >>= (λ
+          doSend = λ pk m → call↓ (there here) here ⟨ pk , m ⟩ >>= (λ
            { nothing → abort -- The public key we set was refused!
-           ; (just c) → call↓ (there here) c ↑ (there here)
+           ; (just c) → call↓ (there here) (there here) c
            })
         in read >>= λ
-          { nothing   → call↓ (there (there here)) tt ↑ here >>= (λ pk →
-              write (just pk) >> dosend pk m)
-          ; (just pk) → dosend pk m
+          { nothing   → call↓ (there (there here)) here tt >>= (λ pk →
+              write (just pk) >> doSend pk m)
+          ; (just pk) → doSend pk m
           }) ∷
       []
     }
@@ -156,11 +155,29 @@ S-SecureChannel {ℓ} M C PK L l pk?= c?= = record
     }
 
 secure : {ℓ : Level} → (M C PK L : Set ℓ) → (l : M → L) →
-  (pk?= : PK → PK → Bool) → (c?= : C → C → Bool) → 
+  (pk?= : PK → PK → Bool) → (c?= : C → C → Bool) → (m?= : M → M → Bool) →
   πᵢ-SecureChannel M L l ≃ πᵣ-SecureChannel M C PK L l pk?= c?=
-secure {ℓ} M C PK L l pk?= c?= = record
-  { sim-gas    = λ _ → 1000
-  ; gas-map    = _* 10
+secure {ℓ} M C PK L l pk?= c?= m?= = record
+  { gas-map    = _* 2
   ; simulator  = S-SecureChannel M C PK L l pk?= c?=
-  ; proof      = λ{ g (strat α O) → ? }
+  ; invariant  = λ
+    { ⟨ ⟨ stnode (just m) [] , lift true ⟩ ,
+        stnode (just pk) (
+          stnode (just ⟨ pk′ , stlog ⟩) [] ∷
+          stnode (just c) [] ∷
+          []
+        ) ⟩ → pk?= pk pk′ ∧ any (λ{ ⟨ m′ , c′ ⟩ → m?= m m′ ∧ c?= c c′ }) stlog
+    ; ⟨ ⟨ stnode nothing [] , lift false ⟩ ,
+        stnode nothing (
+          stnode nothing [] ∷
+          stnode nothing [] ∷
+          []
+        ) ⟩ → true
+    ; _ → false
+    }
+  ; base-case  = refl
+  ; proof      = λ
+    { g σ O (call↓ ∈Γ x)    Σ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩
+    ; g σ O (call↯ ∈Γ Γ⊑ x) Σ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩
+    }
   }
