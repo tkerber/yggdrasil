@@ -3,7 +3,8 @@ module Yggdrasil.Examples.SecureChannel where
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.List using (List; []; _∷_; any)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (_*_)
+open import Data.Nat using (_*_; zero; suc)
+open import Data.Empty using (⊥-elim)
 open import Data.Product using (_×_) renaming (_,_ to ⟨_,_⟩)
 open import Level using (Level; Lift; lift)
 open import Relation.Binary.PropositionalEquality using (refl)
@@ -177,7 +178,80 @@ secure {ℓ} M C PK L l pk?= c?= m?= = record
     }
   ; base-case  = refl
   ; proof      = λ
-    { g σ O (call↓ ∈Γ x)    Σ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩
-    ; g σ O (call↯ ∈Γ Γ⊑ x) Σ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩
+    { g σ O (call↓ here tt) ⟨
+        ⟨ stnode (just m) [] , lift true ⟩ ,
+        stnode (just pk′) (
+          stnode (just ⟨ pk , log ⟩) [] ∷
+          stnode (just c) [] ∷
+          [])
+      ⟩ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩ 
+    ; g σ O (call↓ here tt) ⟨
+        ⟨ stnode nothing [] , lift false ⟩ ,
+        stnode nothing (
+          stnode nothing [] ∷
+          stnode nothing [] ∷
+          [])
+      ⟩ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩ 
+    ; zero σ O (call↓ (there here) m) ⟨
+        ⟨ stnode (just m′) [] , lift true ⟩ ,
+        stnode (just pk′) (
+          stnode (just ⟨ pk , log ⟩) [] ∷
+          stnode (just c) [] ∷
+          [])
+      ⟩ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩ 
+    ; (suc g) σ O (call↓ (there here) m) ⟨
+        ⟨ stnode (just m′) [] , lift true ⟩ ,
+        stnode (just pk′) (
+          stnode (just ⟨ pk , log ⟩) [] ∷
+          stnode (just c) [] ∷
+          [])
+      ⟩ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩ 
+    ; g σ O (call↓ (there here) m) ⟨
+        ⟨ stnode nothing [] , lift false ⟩ ,
+        stnode nothing (
+          stnode nothing [] ∷
+          stnode nothing [] ∷
+          [])
+      ⟩ inv → ⟨ ? , ⟨ ? , ? ⟩ ⟩ 
+    ; g σ O _ ⟨ ⟨ stnode nothing [] , lift true ⟩ , _ ⟩ inv → ⊥-elim ?
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift true ⟩ ,
+        stnode nothing _
+      ⟩ ()
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift true ⟩ ,
+        stnode _ (stnode nothing [] ∷ _)
+      ⟩ ()
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift true ⟩ ,
+        stnode _ (
+          stnode _ [] ∷
+          stnode nothing [] ∷
+          [])
+      ⟩ ()
+    ; g σ O _ ⟨ ⟨ stnode (just _) [] , lift false ⟩ , _ ⟩ inv → ⊥-elim ?
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift false ⟩ ,
+        stnode (just _) _
+      ⟩ ()
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift false ⟩ ,
+        stnode _ (stnode (just _) [] ∷ _)
+      ⟩ ()
+    ; g σ O _ ⟨
+        ⟨ stnode _ [] , lift false ⟩ ,
+        stnode _ (
+          stnode _ [] ∷
+          stnode (just _) [] ∷
+          [])
+      ⟩ ()
+    ; g σ O (call↓ (there (there ())) x) Σ inv
+    ; g σ O (call↯ () here x) Σ inv
+    ; g σ O (call↯ () (there here here) x) Σ inv
+    ; g σ O (call↯ () (there (there here) here) x) Σ inv
+    ; g σ O (call↯ ∈Γ (there (there (there ())) here) x) Σ inv
+    ; g σ O (call↯ ∈Γ (there here (there () Γ⊑)) x) Σ inv
+    ; g σ O (call↯ ∈Γ (there (there here) (there () Γ⊑)) x) Σ inv
+    ; g σ O (call↯ ∈Γ (there (there (there ())) (there x₂ Γ⊑)) x) Σ inv
     }
   }

@@ -10,7 +10,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Level using (Level; Lift) renaming (suc to lsuc; lift to llift)
-open import Yggdrasil.Probability using (Dist; pure; _>>=_; lift)
+open import Yggdrasil.Probability using (Dist; pure; _>>=′_; lift)
 open import Yggdrasil.List using (_∈_; here; there)
 
 data ⊤ {ℓ : Level} : Set ℓ where
@@ -179,32 +179,31 @@ exec↑ : ∀ {ℓ S Γ₁ Γ₂ A} → Oracle S Γ₁ → Action↑ (node Γ₂
   (S × WorldState {ℓ} Γ₁) → Γ₂ ⊑ Γ₁ → ℕ → Dist (Result (A × (S × WorldState {ℓ} Γ₁)))
 
 -- NOTE: Gas is only used for termination here, it is NOT a computational model.
-exec (strat S α O) Σ g = (exec⊤ O α ⟨ S , Σ ⟩ g) >>= (pure ∘ rmap (llift ∘ proj₁))
+exec (strat S α O) Σ g = (exec⊤ O α ⟨ S , Σ ⟩ g) >>=′ (pure ∘ rmap (llift ∘ proj₁))
 
 exec⊤ O read                    Σ g       = pure (result ⟨ proj₁ Σ , Σ ⟩)
 exec⊤ O (write σ)               Σ g       = pure (result ⟨ tt , ⟨ σ , proj₂ Σ ⟩ ⟩)
 exec⊤ O (call↓ {f = f} ∈Γ x)    Σ g       = exec↑ O (Call.δ f x) Σ here g
 exec⊤ O abort                   Σ g       = pure abort
-exec⊤ O (dist D)                Σ g       = lift D >>= λ{
+exec⊤ O (dist D)                Σ g       = lift D >>=′ λ{
   (llift x) → pure (result ⟨ x , Σ ⟩ ) }
 exec⊤ O (call↯ {f = f} f∈ ⊑Γ x) Σ g       = exec↑ O (Call.δ f x) Σ ⊑Γ g
-exec⊤ O (α >>= β)               Σ g       = (exec⊤ O α Σ g) >>= λ{
+exec⊤ O (α >>= β)               Σ g       = (exec⊤ O α Σ g) >>=′ λ{
   (result ⟨ x , Σ′ ⟩) → exec⊤ O (β x) Σ′ g ;
-  abort               → pure abort        ;
-  out-of-gas          → pure out-of-gas   }
+  abort               → pure abort         ;
+  out-of-gas          → pure out-of-gas    }
 
 exec↑ O read                    Σ ⊑Γ g       = pure (result
   ⟨ get ⊑Γ (proj₂ Σ) , Σ ⟩)
 exec↑ O (write σ)               Σ ⊑Γ g       = pure (result
   ⟨ tt , ⟨ proj₁ Σ , set ⊑Γ (proj₂ Σ) σ ⟩ ⟩)
 exec↑ O abort                   Σ ⊑Γ g       = pure abort
-exec↑ O (dist D)                Σ ⊑Γ g       = lift D >>=
+exec↑ O (dist D)                Σ ⊑Γ g       = lift D >>=′
   λ{ (llift x) → pure (result ⟨ x , Σ ⟩) }
 exec↑ O (query {q = q} q∈ x)    Σ ⊑Γ zero    = pure out-of-gas
 exec↑ O (query {q = q} q∈ x)    Σ ⊑Γ (suc g) = exec⊤ O (O (path ⊑Γ q∈) x) Σ g
 exec↑ O (call↓ {f = f} ∈Γ Γ∈ x) Σ ⊑Γ g       = exec↑ O (Call.δ f x) Σ (⊑-right ⊑Γ Γ∈) g
-exec↑ O (α >>= β)               Σ ⊑Γ g       = (exec↑ O α Σ ⊑Γ g)
-  >>= λ{
-    (result ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ g ;
-    abort               → pure abort            ;
-    out-of-gas          → pure out-of-gas       }
+exec↑ O (α >>= β)               Σ ⊑Γ g       = (exec↑ O α Σ ⊑Γ g) >>=′ λ{
+  (result ⟨ x , Σ′ ⟩) → exec↑ O (β x) Σ′ ⊑Γ g ;
+  abort               → pure abort            ;
+  out-of-gas          → pure out-of-gas       }

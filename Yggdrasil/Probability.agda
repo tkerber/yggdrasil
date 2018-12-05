@@ -54,11 +54,16 @@ data Dist {ℓ : Level} : Set ℓ → Set (lsuc ℓ) where
   sample : ∀ {n : ℕ} → Dist (PrFin {ℓ} n)
   _>>=_ : ∀ {A B : Set ℓ} → Dist A → (A → Dist B) → Dist B
 
+_>>=′_ : ∀ {ℓ A B} → Dist {ℓ} A → (A → Dist {ℓ}  B) → Dist {ℓ} B
+pure x >>=′ y = y x
+sample >>=′ y = sample >>= y
+(a >>= b) >>=′ y = (a >>= b) >>= y
+
 dmap : ∀ {ℓ A B} → (A → B) → Dist {ℓ} A → Dist {ℓ} B
-dmap f d = d >>= (λ x → pure (f x))
+dmap f d = d >>=′ (λ x → pure (f x))
 
 _*_ : ∀ {ℓ A B} → Dist {ℓ} A → Dist {ℓ} B → Dist {ℓ} (A × B)
-a * b = a >>= (λ x → b >>= (λ y → pure ⟨ x , y ⟩))
+a * b = a >>=′ (λ x → b >>=′ (λ y → pure ⟨ x , y ⟩))
 
 lift : {ℓ₁ ℓ₂ : Level} {A : Set ℓ₁} → Dist A → Dist (Lift ℓ₂ A)
 lift (pure x) = pure (llift x)

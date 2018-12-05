@@ -17,7 +17,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; con
 open import Relation.Nullary.Decidable using (True; fromWitnessFalse)
 open import Yggdrasil.List using (_∈_; here; there; with-proof; map≡-implies-∈≡)
 open import Yggdrasil.World using (WorldType; WorldState; World; Oracle; Call; Strategy; Node; weaken; call; call↓; stnode; _∷_; []; _⊑_; Query; _∈↑_; abort; dist; _>>=_; call↯; query; path; strat; ⊤; tt; Action⊤; read; write; exec⊤; Result; out-of-gas; result; rmap; T)
-open import Yggdrasil.Probability as Pr using (Dist; _>>=_; pure; _≈[_]≈_; dmap; _*_; Pr[_[_]]≡_)
+open import Yggdrasil.Probability as Pr using (Dist; _>>=′_; pure; _≈[_]≈_; dmap; _*_; Pr[_[_]]≡_)
 open import Yggdrasil.Rational using (_÷_)
 open WorldType
 open Node
