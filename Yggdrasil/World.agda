@@ -1,17 +1,18 @@
 module Yggdrasil.World where
 
 open import Data.Bool using (Bool; T)
-open import Data.List using (List; _∷_; []; map)
+open import Data.List using (List; _∷_; []; map; _++_; length; lookup)
 open import Data.List.Any using (here; there)
 open import Data.List.Membership.Propositional using (_∈_)
+open import Data.Fin using (Fin)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mmap)
 open import Data.Nat using (ℕ; suc)
-open import Data.Product as Π using (_×_; ∃; ∃-syntax; proj₁; proj₂) renaming (_,_ to ⟨_,_⟩)
+open import Data.Product as Π using (_×_; ∃; ∃-syntax; proj₁; proj₂; map₂) renaming (_,_ to ⟨_,_⟩)
 open import Data.String using (String)
 import Data.String.Unsafe as S
 open import Function using (id)
 open import Level using (Level; _⊔_; Lift) renaming (suc to lsuc; zero to lzero)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Relation.Nullary using (Dec; yes; no)
 
 -- Auto-lifted variant of ⊤.
@@ -21,128 +22,147 @@ data ⊤ {ℓ : Level} : Set ℓ where
 Table : ∀ {ℓ} → Set ℓ → Set ℓ
 Table A = List (String × A)
 
-lookup : ∀ {ℓ A} → Table {ℓ} A → String → Maybe A
-lookup [] _ = nothing
-lookup (⟨ s₁ , x ⟩ ∷ xs) s₂ with s₁ S.≟ s₂
-... | yes _ = just x
-... | no _  = lookup xs s₂
+_∪_ : ∀ {ℓ A} → Table {ℓ} A → Table {ℓ} A → Table {ℓ} A
+_∪_ = _++_
 
 module Weak where
+
   record WeakState {ℓ : Level} : Set (lsuc ℓ)
 
-  record WeakTransition {ℓ : Level} : Set (lsuc ℓ) where
+  record WeakTransition {ℓ : Level} (n : ℕ) : Set (lsuc ℓ) where
     inductive
     field
       A : Set ℓ
       B : A → Set ℓ
-      Σ : A → WeakState {ℓ}
+      Σ : A → Fin n
 
   record WeakState {ℓ} where
     inductive
     field
-      δ↑ : Table (WeakTransition {ℓ})
-      δ↓ : Table (WeakTransition {ℓ})
+      states : List (Set ℓ)
+      current : Fin (length states)
+      δ↑ : Fin (length states) → Table (WeakTransition {ℓ} (length states))
+      δ↓ : Fin (length states) → Table (WeakTransition {ℓ} (length states))
 
 open Weak using (WeakState; WeakTransition)
+open WeakState
 
 record State {ℓ : Level} (Σʷ : WeakState {ℓ}) : Set (lsuc ℓ)
-data Action {ℓ : Level} : {Σʷ₁ Σʷ₂ : WeakState {ℓ}} → (Σ₁ : Π.Σ (Set ℓ) id) →
+
+data Action {ℓ : Level} : {Σʷ₁ Σʷ₂ : WeakState {ℓ}} →
+    (Σ₁ : Fin (length (states Σʷ₁))) →
     (Σ₂ : State Σʷ₂) → Set ℓ → Set (lsuc ℓ)
 
-Transition↑ : {ℓ : Level} {Σʷ : WeakState {ℓ}} → (Σ₁ : Π.Σ (Set ℓ) id) →
-  WeakTransition {ℓ} → Set (lsuc ℓ)
-Transition↑ {Σʷ = Σʷ} Σ₁ T = (x : A T) → Π.Σ (State (Σ T x))
+Transition↑ : {ℓ : Level} {Σʷ : WeakState {ℓ}} →
+  (Σ₁ : Fin (length (states Σʷ))) → WeakTransition {ℓ} (length (states Σʷ)) →
+  Set (lsuc ℓ)
+Transition↑ {Σʷ = Σʷ} Σ₁ T = (x : A T) → Π.Σ
+    (State (record Σʷ { current = Σ T x }))
     (λ Σ₂ → Action {Σʷ₁ = Σʷ} Σ₁ Σ₂ (B T x))
   where open WeakTransition using (A; B; Σ)
 
-Transition↓ : {ℓ : Level} → WeakTransition {ℓ} → Set (lsuc ℓ)
-Transition↓ T = (x : A T) → State (Σ T x)
+Transition↓ : {ℓ : Level} {Σʷ : WeakState {ℓ}} →
+  WeakTransition {ℓ} (length (states Σʷ)) → Set ℓ
+Transition↓ {Σʷ = Σʷ} T = (x : A T) → Π.Σ (Fin (length (states Σʷ)))
+    (λ n → lookup (states Σʷ) n)
   where open WeakTransition using (A; Σ)
 
-data Transitions↑ {ℓ : Level} (Σ : Π.Σ (Set ℓ) id) :
-    Table (WeakTransition {ℓ}) → Set (lsuc ℓ) where
-  [] : Transitions↑ Σ []
-  _∷_ : ∀ {Σʷ T Ts name} → Transition↑ {Σʷ = Σʷ} Σ T → Transitions↑ Σ Ts →
-    Transitions↑ Σ (⟨ name , T ⟩ ∷ Ts)
-
-data Transitions↓ {ℓ : Level} :
-    Table (WeakTransition {ℓ}) → Set (lsuc ℓ) where
-  [] : Transitions↓ []
-  _∷_ : ∀ {T Ts name} → Transition↓ T → Transitions↓ Ts →
-    Transitions↓ (⟨ name , T ⟩ ∷ Ts)
-
+--data Transitions↑ {ℓ : Level} (Σ : Π.Σ (Set ℓ) id) :
+--    Table (WeakTransition {ℓ}) → Set (lsuc ℓ) where
+--  [] : Transitions↑ Σ []
+--  _∷_ : ∀ {Σʷ T Ts name} → Transition↑ {Σʷ = Σʷ} Σ T → Transitions↑ Σ Ts →
+--    Transitions↑ Σ (⟨ name , T ⟩ ∷ Ts)
+--
+--data Transitions↓ {ℓ : Level} :
+--    Table (WeakTransition {ℓ}) → Set (lsuc ℓ) where
+--  [] : Transitions↓ []
+--  _∷_ : ∀ {T Ts name} → Transition↓ T → Transitions↓ Ts →
+--    Transitions↓ (⟨ name , T ⟩ ∷ Ts)
+--
 record State {ℓ} Σʷ where
-  inductive
+  open WeakState
   field
-    Σ : Set ℓ
-    σ : Σ
-    δ↑ : Transitions↑ ⟨ Σ , σ ⟩ (WeakState.δ↑ Σʷ)
-    δ↓ : Transitions↓ (WeakState.δ↓ Σʷ)
-
-⌊_⌋ : ∀ {ℓ Σʷ} → (Σ : State {ℓ} Σʷ) → Π.Σ (Set ℓ) id
-⌊ Σ ⌋ = ⟨ State.Σ Σ , State.σ Σ ⟩
-
-lookup↓ : ∀ {ℓ xs δ} → δ ∈ xs → (Ts : Transitions↓ {ℓ} xs) → Transition↓ (proj₂ δ)
-lookup↓ (here refl) (x ∷ _) = x
-lookup↓ (there ∈xs) (_ ∷ xs) = lookup↓ ∈xs xs
-
-∈↓ʷ⇒∈↓ : ∀ {ℓ Σʷ δ} {Σ : State Σʷ} → δ ∈ (WeakState.δ↓ Σʷ) →
-  Transition↓ {ℓ} (proj₂ δ)
-∈↓ʷ⇒∈↓ {Σ = Σ} δ∈ = lookup↓ δ∈ (State.δ↓ Σ)
+    n : Fin (length (states Σʷ))
+    σ : lookup (states Σʷ) n
+--    δ↑ : Transitions↑ ⟨ Σ , σ ⟩ (WeakState.δ↑ Σʷ)
+--    δ↓ : Transitions↓ (WeakState.δ↓ Σʷ)
 --
---open Weak
+--⌊_⌋ : ∀ {ℓ Σʷ} → (Σ : State {ℓ} Σʷ) → Π.Σ (Set ℓ) id
+--⌊ Σ ⌋ = ⟨ State.Σ Σ , State.σ Σ ⟩
 --
-
+--lookup↓ : ∀ {ℓ xs δ} → δ ∈ xs → (Ts : Transitions↓ {ℓ} xs) → Transition↓ (proj₂ δ)
+--lookup↓ (here refl) (x ∷ _) = x
+--lookup↓ (there ∈xs) (_ ∷ xs) = lookup↓ ∈xs xs
+--
+--∈↓ʷ⇒∈↓ : ∀ {ℓ Σʷ δ} {Σ : State Σʷ} → δ ∈ (WeakState.δ↓ Σʷ) →
+--  Transition↓ {ℓ} (proj₂ δ)
+--∈↓ʷ⇒∈↓ {Σ = Σ} δ∈ = lookup↓ δ∈ (State.δ↓ Σ)
+----
+----open Weak
+----
+--
 data Action {ℓ} where
-  get    : ∀ {Σʷ Σ} → Action {ℓ} {Σʷ} {Σʷ} ⌊ Σ ⌋ Σ (State.Σ Σ)
-  set    : ∀ {Σʷ₁ Σʷ₂ Σ₁ Σ₂} → State.Σ Σ₂ → Action {ℓ} {Σʷ₁} {Σʷ₂} Σ₁ Σ₂ ⊤
-  call   : ∀ {Σʷ δ} {Σ : State Σʷ} → (δ∈ : δ ∈ WeakState.δ↓ Σʷ) →
-    (x : WeakTransition.A (proj₂ δ)) →
-    Action {ℓ} {Σʷ} {WeakTransition.Σ (proj₂ δ) x} ⌊ Σ ⌋
-      (∈↓ʷ⇒∈↓ {Σ = Σ} δ∈ x)
-      (WeakTransition.B (proj₂ δ) x)
-  return : ∀ {Σʷ Σ A} → Action {ℓ} {Σʷ} {Σʷ} ⌊ Σ ⌋ Σ A
-  _>>=_  : ∀ {Σʷ₁ Σʷ₂ Σʷ₃ Σ₁ Σ₂ Σ₃ A B} →
-    Action {ℓ} {Σʷ₁} {Σʷ₂} (⌊_⌋ {Σʷ = Σʷ₁} Σ₁) Σ₂ A →
-    (A → Action {ℓ} {Σʷ₂} {Σʷ₃} ⌊ Σ₂ ⌋ Σ₃ B) →
-    Action {ℓ} {Σʷ₁} {Σʷ₃} ⌊ Σ₁ ⌋ Σ₃ B
-
-record ParallelComposable {ℓ₁ ℓ₂ : Level} (A : Set ℓ₁) {P : A → A → Set ℓ₂} :
-    Set (ℓ₁ ⊔ ℓ₂) where
-  field
-    _||_ : A → A → A
-    _∘_  : (x : A) → (y : A) → {_ : P x y} → A
-
-data InterfaceMatches {ℓ : Level} : ℕ → (Σʷ₁ Σʷ₂ : WeakState {ℓ}) → Set (lsuc ℓ) where
-  unreachable : ∀ {Σʷ₁ Σʷ₂} → InterfaceMatches 0 Σʷ₁ Σʷ₂
-  match : ∀ {n Σʷ₁ Σʷ₂ δ₁} →
-    -- For each interface in the outgoing to Σʷ₁
-    δ₁ ∈ WeakState.δ↓ Σʷ₁ →
-    Π.Σ (String × WeakTransition {ℓ}) (λ δ₂ →
-      -- A corresponding interface exists in the incoming of Σʷ₂
-      (δ₂ ∈ WeakState.δ↑ Σʷ₂) ×
-      -- With the same name
-      (proj₁ δ₁ ≡ proj₁ δ₂) ×
-      -- The same input type
-      Π.Σ (WeakTransition.A (proj₂ δ₁) ≡ WeakTransition.A (proj₂ δ₂)) (λ{
-        refl → (x : WeakTransition.A (proj₂ δ₁)) →
-          -- The same output type
-          WeakTransition.B (proj₂ δ₁) x ≡ WeakTransition.B (proj₂ δ₂) x ×
-          -- And preserving the fact that interfaces keep matching.
-          InterfaceMatches n (WeakTransition.Σ (proj₂ δ₁) x)
-            (WeakTransition.Σ (proj₂ δ₂) x)
-    })) →
-    InterfaceMatches (suc n) Σʷ₁ Σʷ₂
-
-instance
-  WeakStateParallelComposable : ∀ {ℓ : Level} → ParallelComposable {lsuc ℓ} (WeakState {ℓ}) {λ Σʷ₁ Σʷ₂ → ∀ n → InterfaceMatches n Σʷ₁ Σʷ₂}
-  WeakStateParallelComposable = record
-    { _||_ = ?
-    ; _∘_  = λ Σʷ₁ Σʷ₂ → record
-      { δ↑ = ?
-      ; δ↓ = ?
-      }
-    }
+--  get    : ∀ {Σʷ Σ} → Action {ℓ} {Σʷ} {Σʷ} ⌊ Σ ⌋ Σ (State.Σ Σ)
+--  set    : ∀ {Σʷ₁ Σʷ₂ Σ₁ Σ₂} → State.Σ Σ₂ → Action {ℓ} {Σʷ₁} {Σʷ₂} Σ₁ Σ₂ ⊤
+--  call   : ∀ {Σʷ δ} {Σ : State Σʷ} → (δ∈ : δ ∈ WeakState.δ↓ Σʷ) →
+--    (x : WeakTransition.A (proj₂ δ)) →
+--    Action {ℓ} {Σʷ} {WeakTransition.Σ (proj₂ δ) x} ⌊ Σ ⌋
+--      (∈↓ʷ⇒∈↓ {Σ = Σ} δ∈ x)
+--      (WeakTransition.B (proj₂ δ) x)
+--  return : ∀ {Σʷ Σ A} → Action {ℓ} {Σʷ} {Σʷ} ⌊ Σ ⌋ Σ A
+--  _>>=_  : ∀ {Σʷ₁ Σʷ₂ Σʷ₃ Σ₁ Σ₂ Σ₃ A B} →
+--    Action {ℓ} {Σʷ₁} {Σʷ₂} (⌊_⌋ {Σʷ = Σʷ₁} Σ₁) Σ₂ A →
+--    (A → Action {ℓ} {Σʷ₂} {Σʷ₃} ⌊ Σ₂ ⌋ Σ₃ B) →
+--    Action {ℓ} {Σʷ₁} {Σʷ₃} ⌊ Σ₁ ⌋ Σ₃ B
+--
+--record ParallelComposable {ℓ₁ ℓ₂ : Level} (A : Set ℓ₁) {P : A → A → Set ℓ₂} :
+--    Set (ℓ₁ ⊔ ℓ₂) where
+--  field
+--    _||_ : A → A → A
+--    _∘_  : (x : A) → (y : A) → {_ : P x y} → A
+--
+--data InterfaceMatches {ℓ : Level} : ℕ → (Σʷ₁ Σʷ₂ : WeakState {ℓ}) → Set (lsuc ℓ) where
+--  unreachable : ∀ {Σʷ₁ Σʷ₂} → InterfaceMatches 0 Σʷ₁ Σʷ₂
+--  match : ∀ {n Σʷ₁ Σʷ₂ δ₁} →
+--    -- For each interface in the outgoing to Σʷ₁
+--    δ₁ ∈ WeakState.δ↓ Σʷ₁ →
+--    Π.Σ (String × WeakTransition {ℓ}) (λ δ₂ →
+--      -- A corresponding interface exists in the incoming of Σʷ₂
+--      (δ₂ ∈ WeakState.δ↑ Σʷ₂) ×
+--      -- With the same name
+--      (proj₁ δ₁ ≡ proj₁ δ₂) ×
+--      -- The same input type
+--      Π.Σ (WeakTransition.A (proj₂ δ₁) ≡ WeakTransition.A (proj₂ δ₂)) (λ{
+--        refl → (x : WeakTransition.A (proj₂ δ₁)) →
+--          -- The same output type
+--          WeakTransition.B (proj₂ δ₁) x ≡ WeakTransition.B (proj₂ δ₂) x ×
+--          -- And preserving the fact that interfaces keep matching.
+--          InterfaceMatches n (WeakTransition.Σ (proj₂ δ₁) x)
+--            (WeakTransition.Σ (proj₂ δ₂) x)
+--    })) →
+--    InterfaceMatches (suc n) Σʷ₁ Σʷ₂
+--
+--instance
+--  WeakStateParallelComposable : ∀ {ℓ : Level} → ParallelComposable {lsuc ℓ} (WeakState {ℓ}) {λ Σʷ₁ Σʷ₂ → ∀ n → InterfaceMatches n Σʷ₁ Σʷ₂}
+--  WeakStateParallelComposable = record
+--    { _||_ = _||_
+--    ; _∘_  = λ Σʷ₁ Σʷ₂ → record
+--      { δ↑ = ?
+--      ; δ↓ = ?
+--      }
+--    }
+--    where
+--      open WeakState
+--      open WeakTransition
+--      invariant₁ : ∀ {ℓ} → WeakState {ℓ} → WeakTransition {ℓ} → WeakTransition {ℓ}
+--      invariant₂ : ∀ {ℓ} → WeakState {ℓ} → WeakTransition {ℓ} → WeakTransition {ℓ}
+--      _||_ : ∀ {ℓ} → WeakState {ℓ} → WeakState {ℓ} → WeakState {ℓ}
+--      Σʷ₁ || Σʷ₂ = record
+--        { δ↑ = map (map₂ (invariant₂ Σʷ₂)) (δ↑ Σʷ₁) ∪ map (map₂ (invariant₁ Σʷ₁)) (δ↑ Σʷ₂)
+--        ; δ↓ = map (map₂ (invariant₂ Σʷ₂)) (δ↓ Σʷ₁) ∪ map (map₂ (invariant₁ Σʷ₁)) (δ↓ Σʷ₂)
+--        }
+--      invariant₁ Σʷ δ = record { A = A δ ; B = B δ ; Σ = λ x → Σʷ || Σ δ x }
+--      invariant₂ Σʷ δ = record { A = A δ ; B = B δ ; Σ = λ x → Σ δ x || Σʷ }
 --  ActionParallelComposable : ∀ {ℓ : Level} {Σʷ : WeakState {ℓ}} → (Σ : State Σʷ) → (A : Set ℓ) → ParallelComposable {ℓ} {P = InterfaceMatches
 --ParallelComposable 
 
